@@ -10,11 +10,10 @@ const config = {
 };
 
 // --- LISTA DE ALUMNOS A INSERTAR ---
-// Agrega aquí a los alumnos manualmente cuando quieras registrarlos en la BD
 const students = [
   { matricula: '11111', curp: 'CURP111', email: 'alumno1@fasbit.local' },
   { matricula: '22222', curp: 'CURP222', email: 'alumno2@fasbit.local' },
-  { matricula: '183204', curp: 'VICOAX667900', email: 'victor@hotmail.com' },
+  { matricula: '183204', curp: 'HECTOR123', email: 'hector@fasbit.local' },
 ];
 // -----------------------------------
 
@@ -24,12 +23,21 @@ async function seed() {
     connection = await mysql.createConnection(config);
     console.log('Conectado a la base de datos.');
 
+    // --- PASO DE SEGURIDAD: Crear la columna si no existe ---
+    try {
+      await connection.execute(`ALTER TABLE users ADD COLUMN student_id VARCHAR(255) UNIQUE`);
+      console.log('✅ Columna "student_id" creada correctamente.');
+    } catch (e) {
+      // Si el error es 1060 (Duplicate column name), significa que ya existe, así que ignoramos.
+      if (e.errno !== 1060) {
+        console.log('Nota sobre la columna:', e.message);
+      }
+    }
+    // --------------------------------------------------------
+
     for (const s of students) {
-      // 1. Encriptamos la CURP para que sea la contraseña segura
       const hash = bcrypt.hashSync(s.curp, 10);
       
-      // 2. Insertamos o actualizamos si ya existe
-      // El rol se define automáticamente como 'student'
       const sql = `
         INSERT INTO users (email, student_id, password_hash, role, created_at)
         VALUES (?, ?, ?, 'student', NOW())
@@ -44,7 +52,7 @@ async function seed() {
   } catch (error) {
     console.error('Error:', error);
   } finally {
-    if (connection) connection.end();
+    if (connection) await connection.end();
   }
 }
 

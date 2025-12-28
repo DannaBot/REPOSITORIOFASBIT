@@ -32,7 +32,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 
-// We'll initialize DB and start listening after init completes (see bottom)
+// --- MIDDLEWARES DE SEGURIDAD ---
 
 function authenticateToken(req, res, next) {
   const auth = req.headers.authorization;
@@ -60,40 +60,59 @@ function requireRoles(...roles) {
     next();
   };
 }
-
-// Auth endpoints
+// --- LOGIN CON DIAGNÓSTICO ---
 app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body || {};
-  console.log('[login] attempt for', email);
-  if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
+  const { email, password } = req.body || {}; 
+  
+  // LOGS PARA VER QUÉ RECIBE EL SERVIDOR
+  console.log('------------------------------------------------');
+  console.log('🔍 INTENTO DE LOGIN:');
+  console.log('   Usuario recibido:', email); 
+  console.log('   Contraseña recibida:', password); 
+
+  if (!email || !password) {
+    console.log('❌ Faltan datos.');
+    return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
+  }
+  
   try {
     const pool = getPool();
-    const [rows] = await pool.execute('SELECT id, email, password_hash, role FROM users WHERE email = ?', [email]);
+    // Buscamos si es un correo (admin) O una matrícula (alumno)
+    const [rows] = await pool.execute('SELECT id, email, student_id, password_hash, role FROM users WHERE email = ? OR student_id = ?', [email, email]);
     const user = rows && rows[0];
+    
     if (!user) {
-      console.warn('[login] user not found', email);
-      return res.status(401).json({ error: 'Credenciales inválidas' });
+      console.log('❌ Usuario NO encontrado en la Base de Datos.');
+      return res.status(401).json({ error: 'Usuario no encontrado' });
     }
+
+    console.log('✅ Usuario encontrado en BD. Rol:', user.role);
+    
+    // Verificamos la contraseña
     const ok = bcrypt.compareSync(password, user.password_hash);
     if (!ok) {
-      console.warn('[login] invalid password for', email);
-      return res.status(401).json({ error: 'Credenciales inválidas' });
+      console.log('❌ Contraseña INCORRECTA. El hash no coincide.');
+      return res.status(401).json({ error: 'Contraseña incorrecta' });
     }
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
-    console.log('[login] success for', email);
-    res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
+    
+    console.log('✅ ¡Contraseña correcta! Generando token...');
+    const token = jwt.sign({ id: user.id, email: user.email, student_id: user.student_id, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
+    
+    res.json({ token, user: { id: user.id, email: user.email, role: user.role, student_id: user.student_id } });
   } catch (err) {
-    console.error('[login] error', err && err.stack ? err.stack : err);
+    console.error('❌ Error de servidor:', err);
     res.status(500).json({ error: 'Login error' });
   }
 });
 
+// Crear usuarios (Solo Admin - para crear coordinadores)
 app.post('/api/users', authenticateToken, requireRole('admin'), async (req, res) => {
   const { email, password, role } = req.body || {};
   console.log('[users:create] admin', req.user && req.user.email, 'creating', email, 'role', role);
   if (!email || !password || !role) return res.status(400).json({ error: 'email, password y role son requeridos' });
-  // Only allow admin to create coordinators from the UI
+  
   if (role !== 'coordinator') return res.status(400).json({ error: 'Solo se permite crear usuarios con role "coordinator" desde esta ruta' });
+  
   try {
     const hash = bcrypt.hashSync(password, 10);
     const createdAt = new Date();
@@ -102,7 +121,7 @@ app.post('/api/users', authenticateToken, requireRole('admin'), async (req, res)
     console.log('[users:create] inserted id', result.insertId);
     res.json({ id: result.insertId, email, role });
   } catch (err) {
-    console.error('[users:create] error', err && err.stack ? err.stack : err);
+    console.error('[users:create] error', err);
     res.status(500).json({ error: err.message || 'Error creating user' });
   }
 });
@@ -114,17 +133,17 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
     const [r2] = await pool.execute("SELECT COUNT(*) as count FROM users WHERE role = 'coordinator'");
     res.json({ theses: (r1 && r1[0] && r1[0].count) || 0, coordinators: (r2 && r2[0] && r2[0].count) || 0 });
   } catch (err) {
-    console.error('[stats] error', err && err.stack ? err.stack : err);
+    console.error('[stats] error', err);
     res.status(500).json({ error: 'Stats error' });
   }
 });
 
+// Listado de Tesis (Público)
 app.get('/api/theses', (req, res) => {
   const qParam = req.query.q;
   let sql = 'SELECT id, title, author, abstract, career, year, thesis_date, keywords, status, downloads, pdf_filename, created_at, hidden FROM theses';
   const params = [];
 
-  // If the request includes a valid admin or coordinator token, allow showing all records
   let showAll = false;
   const auth = req.headers.authorization;
   if (auth && auth.startsWith('Bearer ')) {
@@ -144,7 +163,7 @@ app.get('/api/theses', (req, res) => {
   }
 
   if (!showAll) {
-    // Only return approved and not hidden for general visitors
+    // Solo mostrar aprobadas y no ocultas a visitantes
     conditions.push('status = ?');
     params.push('approved');
     conditions.push('hidden = ?');
@@ -161,17 +180,19 @@ app.get('/api/theses', (req, res) => {
       const parsed = rows.map(r => ({ ...r, keywords: r.keywords ? JSON.parse(r.keywords) : [] }));
       res.json(parsed);
     } catch (err) {
-      console.error('[theses:list] error', err && err.stack ? err.stack : err, 'sql', sql, 'params', params);
+      console.error('[theses:list] error', err);
       res.status(500).json({ error: 'List error' });
     }
   })();
 });
+
+// Detalle de Tesis (Público, pero con restricciones si está oculta)
 app.get('/api/theses/:id', (req, res) => {
   (async () => {
     try {
       const id = req.params.id;
       
-      // 1. Intentamos leer el usuario (si existe), pero NO bloqueamos si no hay token
+      // Intentamos leer el usuario (si existe), pero NO bloqueamos si no hay token
       let payload = null;
       const authHeader = req.headers.authorization;
       
@@ -179,7 +200,7 @@ app.get('/api/theses/:id', (req, res) => {
         try {
           payload = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
         } catch (e) {
-          // Si el token está mal, no pasa nada, tratamos al usuario como visitante
+          // Si el token está mal, tratamos al usuario como visitante
         }
       }
 
@@ -189,24 +210,26 @@ app.get('/api/theses/:id', (req, res) => {
       
       if (!row) return res.status(404).json({ error: 'Not found' });
 
-      // 2. Solo bloqueamos si la tesis es PRIVADA (hidden) o NO APROBADA
+      // Lógica de permisos para ver detalles de tesis ocultas/no aprobadas
       const isRestricted = (row.hidden === 1 || row.status !== 'approved');
       const isAdminOrCoord = payload && (payload.role === 'admin' || payload.role === 'coordinator');
+      // El autor también puede ver su propia tesis aunque esté oculta
+      const isAuthor = payload && payload.role === 'student' && payload.student_id === row.student_id;
 
-      // Si es restringida y NO eres admin/coordinador -> Prohibido (403)
-      if (isRestricted && !isAdminOrCoord) {
+      if (isRestricted && !isAdminOrCoord && !isAuthor) {
         return res.status(403).json({ error: 'Forbidden' });
       }
 
       row.keywords = row.keywords ? JSON.parse(row.keywords) : [];
       res.json(row);
     } catch (err) {
-      console.error('[theses:get] error', err && err.stack ? err.stack : err);
+      console.error('[theses:get] error', err);
       res.status(500).json({ error: 'Error fetching thesis' });
     }
   })();
 });
-// Admin-only: update thesis status
+
+// Actualizar estatus (Coordinador/Admin)
 app.post('/api/theses/:id/status', authenticateToken, requireRole('coordinator'), async (req, res) => {
   const id = req.params.id;
   const { status } = req.body || {};
@@ -214,15 +237,14 @@ app.post('/api/theses/:id/status', authenticateToken, requireRole('coordinator')
   try {
     const pool = getPool();
     const [result] = await pool.execute('UPDATE theses SET status = ? WHERE id = ?', [status, id]);
-    console.log('[theses:status] updated', id, status, 'result', result);
     res.json({ id, status });
   } catch (err) {
-    console.error('[theses:status] error', err && err.stack ? err.stack : err);
+    console.error('[theses:status] error', err);
     res.status(500).json({ error: 'Error updating status' });
   }
 });
 
-// Admin-only: delete a thesis and its uploaded files
+// Borrar tesis (Admin)
 app.delete('/api/theses/:id', authenticateToken, requireRole('admin'), async (req, res) => {
   const id = req.params.id;
   try {
@@ -231,7 +253,7 @@ app.delete('/api/theses/:id', authenticateToken, requireRole('admin'), async (re
     const row = rows && rows[0];
     if (!row) return res.status(404).json({ error: 'Not found' });
 
-    // remove files if present
+    // Borrar archivos físicos
     try {
       if (row.pdf_filename) {
         const pdfPath = path.join(uploadsDir, row.pdf_filename);
@@ -242,41 +264,51 @@ app.delete('/api/theses/:id', authenticateToken, requireRole('admin'), async (re
         if (fs.existsSync(apprPath)) fs.unlinkSync(apprPath);
       }
     } catch (e) {
-      console.warn('[theses:delete] warning removing files', e && e.message ? e.message : e);
+      console.warn('[theses:delete] warning removing files', e);
     }
 
     const [result] = await pool.execute('DELETE FROM theses WHERE id = ?', [id]);
-    console.log('[theses:delete] deleted', id, 'result', result);
     res.json({ id });
   } catch (err) {
-    console.error('[theses:delete] error', err && err.stack ? err.stack : err);
+    console.error('[theses:delete] error', err);
     res.status(500).json({ error: 'Error deleting thesis' });
   }
 });
 
+// Descargar PDF (Requiere Login)
 app.get('/api/theses/:id/pdf', authenticateToken, async (req, res) => {
   const id = req.params.id;
   try {
     const pool = getPool();
-    const [rows] = await pool.execute('SELECT pdf_filename, hidden, status FROM theses WHERE id = ?', [id]);
+    const [rows] = await pool.execute('SELECT pdf_filename, hidden, status, student_id FROM theses WHERE id = ?', [id]);
     const row = rows && rows[0];
     if (!row || !row.pdf_filename) return res.status(404).json({ error: 'PDF not found' });
-    // Hidden or not-approved theses only available to admin/coordinator
-    if ((row.hidden === 1 || row.status !== 'approved') && !(req.user && (req.user.role === 'admin' || req.user.role === 'coordinator'))) {
+
+    // Reglas de acceso al archivo:
+    // 1. Si está pública (approved y no hidden): Acceso permitido a cualquier usuario logueado (alumno, admin, coord).
+    // 2. Si está restringida: Solo Admin, Coord o el Autor.
+    const isRestricted = (row.hidden === 1 || row.status !== 'approved');
+    const isAdminOrCoord = req.user.role === 'admin' || req.user.role === 'coordinator';
+    const isAuthor = req.user.role === 'student' && req.user.student_id === row.student_id;
+
+    if (isRestricted && !isAdminOrCoord && !isAuthor) {
       return res.status(403).json({ error: 'Forbidden' });
     }
+
     const file = path.join(uploadsDir, row.pdf_filename);
     if (!fs.existsSync(file)) return res.status(404).json({ error: 'File missing' });
-    // increment download count
-    try { await pool.execute('UPDATE theses SET downloads = downloads + 1 WHERE id = ?', [id]); } catch (e) { console.error('[pdf] failed to increment downloads', e); }
+    
+    // Incrementar contador de descargas
+    try { await pool.execute('UPDATE theses SET downloads = downloads + 1 WHERE id = ?', [id]); } catch (e) {}
+    
     res.sendFile(file);
   } catch (err) {
-    console.error('[theses:pdf] error', err && err.stack ? err.stack : err);
+    console.error('[theses:pdf] error', err);
     res.status(500).json({ error: 'Error retrieving PDF' });
   }
 });
 
-// Coordinator-only: toggle visibility (hidden flag)
+// Cambiar visibilidad (Coordinador)
 app.post('/api/theses/:id/visibility', authenticateToken, requireRole('coordinator'), async (req, res) => {
   const id = req.params.id;
   const hidden = req.body && (req.body.hidden === 1 || req.body.hidden === '1' || req.body.hidden === true || req.body.hidden === 'true') ? 1 : 0;
@@ -285,11 +317,12 @@ app.post('/api/theses/:id/visibility', authenticateToken, requireRole('coordinat
     const [result] = await pool.execute('UPDATE theses SET hidden = ? WHERE id = ?', [hidden, id]);
     res.json({ id, hidden });
   } catch (err) {
-    console.error('[theses:visibility] error', err && err.stack ? err.stack : err);
+    console.error('[theses:visibility] error', err);
     res.status(500).json({ error: 'Error updating visibility' });
   }
 });
 
+// --- SUBIDA DE TESIS (Sin crear usuario) ---
 app.post('/api/upload', authenticateToken, requireRole('coordinator'), upload.fields([{ name: 'pdfFile' }, { name: 'approvalFile' }]), async (req, res) => {
   try {
     const body = req.body;
@@ -298,26 +331,25 @@ app.post('/api/upload', authenticateToken, requireRole('coordinator'), upload.fi
 
     if (!pdfFile) return res.status(400).json({ error: 'PDF requerido' });
 
-    // extract text
+    // Extraer texto para búsquedas (opcional)
     const dataBuffer = fs.readFileSync(pdfFile.path);
     const pdfData = await pdf(dataBuffer).catch(() => ({ text: '' }));
     const fulltext = (pdfData && pdfData.text) ? pdfData.text : '';
 
     const keywords = body.keywords ? JSON.stringify(body.keywords.split(',').map(k => k.trim())) : JSON.stringify([]);
     
-    // --- CAMBIO IMPORTANTE AQUÍ ---
-    // Forzamos el estado a 'approved' para que aparezca visible inmediatamente
-    const status = 'approved';
-    // -----------------------------
-    
+    // Publicación automática
+    const status = 'approved'; 
     const hidden = (body.hidden === '1' || body.hidden === 'true') ? 1 : 0;
     const createdAt = new Date();
     const pool = getPool();
 
+    // Insertar la tesis vinculando la matrícula (student_id)
+    // No tocamos la tabla de usuarios. Los usuarios se deben crear aparte (seed o panel admin).
     const [result] = await pool.execute('INSERT INTO theses (title, author, student_id, email, abstract, advisor, career, year, thesis_date, keywords, status, hidden, downloads, pdf_filename, approval_filename, `fulltext`, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
       body.title || '',
       body.studentName || '',
-      body.studentId || '',
+      body.studentId || '', // Matrícula del alumno
       body.email || '',
       body.abstract || '',
       body.advisor || '',
@@ -336,12 +368,13 @@ app.post('/api/upload', authenticateToken, requireRole('coordinator'), upload.fi
 
     const id = result.insertId;
     console.log('[upload] inserted thesis id', id);
+    
     const [rows] = await pool.execute('SELECT id, title, author, abstract, career, year, keywords, status, downloads, pdf_filename, created_at FROM theses WHERE id = ?', [id]);
     const row = rows && rows[0];
     if (row) row.keywords = row.keywords ? JSON.parse(row.keywords) : [];
     res.json(row);
   } catch (error) {
-    console.error('[upload] error', error && error.stack ? error.stack : error);
+    console.error('[upload] error', error);
     res.status(500).json({ error: 'Upload failed' });
   }
 });
@@ -352,6 +385,6 @@ init().then(() => {
     console.log(`Server listening on port ${PORT}`);
   });
 }).catch(err => {
-  console.error('[server] Failed to init DB, aborting start', err && err.stack ? err.stack : err);
+  console.error('[server] Failed to init DB, aborting start', err);
   process.exit(1);
 });
