@@ -1,58 +1,69 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
-import { Clock, CheckCircle, XCircle, Eye, FileText, AlertCircle } from 'lucide-react';
+import { XCircle, Eye, FileText } from 'lucide-react';
 import { motion } from 'framer-motion';
 // RUTAS CORREGIDAS
 import { Button } from '../ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { useToast } from '../ui/use-toast';
-import { supabase } from '../lib/supabase';
+import { getToken } from '../lib/auth';
 
 const Admin = () => {
   const { toast } = useToast();
   const [theses, setTheses] = useState([]);
-  const [selectedStatus, setSelectedStatus] = useState('pending');
 
   useEffect(() => {
     loadTheses();
   }, []);
 
+  const [stats, setStats] = React.useState({ theses: 0, coordinators: 0 });
+
+  React.useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const res = await fetch('http://localhost:4000/api/stats', {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        });
+        if (!res.ok) return;
+        const s = await res.json();
+        setStats(s);
+      } catch (e) {
+        // ignore
+      }
+    };
+    loadStats();
+  }, []);
+
   const loadTheses = async () => {
     try {
-      const { data, error } = await supabase
-        .from('theses')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const res = await fetch('http://localhost:4000/api/theses', {
+        headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {}
+      });
+      if (!res.ok) throw new Error('Error cargando tesis');
+      const data = await res.json();
       setTheses(data || []);
     } catch (error) {
       console.error('Error loading theses:', error);
     }
   };
 
-  const updateThesisStatus = async (id, status) => {
+  // Admin does not change publication status; only delete and create coordinators
+
+  const deleteThesis = async (id) => {
+    if (!window.confirm('¿Estás seguro de que deseas eliminar esta tesis? Esta acción no se puede deshacer.')) return;
     try {
-      const { error } = await supabase
-        .from('theses')
-        .update({ status })
-        .eq('id', id);
-
-      if (error) throw error;
-
-      toast({
-        title: "Estado actualizado",
-        description: `La tesis ha sido ${status === 'approved' ? 'aprobada' : status === 'rejected' ? 'rechazada' : 'marcada para correcciones'}`,
+      const res = await fetch(`http://localhost:4000/api/theses/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${getToken()}`
+        }
       });
-
+      if (!res.ok) throw new Error('No se pudo eliminar la tesis');
+      toast({ title: 'Tesis eliminada' });
       loadTheses();
-    } catch (error) {
-      console.error('Error updating thesis:', error);
-      toast({
-        title: "Error",
-        description: "No se pudo actualizar el estado de la tesis",
-        variant: "destructive"
-      });
+    } catch (err) {
+      console.error('Error deleting thesis:', err);
+      toast({ title: 'Error', description: err.message || 'No se pudo borrar la tesis', variant: 'destructive' });
     }
   };
 
@@ -119,82 +130,50 @@ const Admin = () => {
         <Button
           size="sm"
           variant="outline"
-          onClick={() => toast({
-            title: "Vista previa",
-            description: "🚧 Esta funcionalidad aún no está implementada, pero puedes solicitarla en tu siguiente prompt! 🚀"
-          })}
+          onClick={() => window.location.href = `/thesis/${thesis.id}`}
         >
           <Eye className="h-4 w-4 mr-1" />
           Ver Detalle
         </Button>
-        
-        {thesis.status === 'pending' && (
-          <>
-            <Button
-              size="sm"
-              className="bg-green-600 hover:bg-green-700"
-              onClick={() => updateThesisStatus(thesis.id, 'approved')}
-            >
-              <CheckCircle className="h-4 w-4 mr-1" />
-              Aprobar
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-orange-600 border-orange-600 hover:bg-orange-50"
-              onClick={() => updateThesisStatus(thesis.id, 'corrections')}
-            >
-              <AlertCircle className="h-4 w-4 mr-1" />
-              Solicitar Correcciones
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-red-600 border-red-600 hover:bg-red-50"
-              onClick={() => updateThesisStatus(thesis.id, 'rejected')}
-            >
-              <XCircle className="h-4 w-4 mr-1" />
-              Rechazar
-            </Button>
-          </>
-        )}
-
-        {thesis.status === 'corrections' && (
-          <>
-            <Button
-              size="sm"
-              className="bg-green-600 hover:bg-green-700"
-              onClick={() => updateThesisStatus(thesis.id, 'approved')}
-            >
-              <CheckCircle className="h-4 w-4 mr-1" />
-              Aprobar
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-red-600 border-red-600 hover:bg-red-50"
-              onClick={() => updateThesisStatus(thesis.id, 'rejected')}
-            >
-              <XCircle className="h-4 w-4 mr-1" />
-              Rechazar
-            </Button>
-          </>
-        )}
-
-        {thesis.status === 'approved' && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="text-orange-600 border-orange-600 hover:bg-orange-50"
-            onClick={() => updateThesisStatus(thesis.id, 'corrections')}
-          >
-            <AlertCircle className="h-4 w-4 mr-1" />
-            Solicitar Correcciones
-          </Button>
-        )}
+        <Button
+          size="sm"
+          variant="destructive"
+          className="ml-2"
+          onClick={() => deleteThesis(thesis.id)}
+        >
+          Eliminar
+        </Button>
       </div>
     </motion.div>
   );
+
+  // --- Crear coordinador ---
+  const [newCoordinatorEmail, setNewCoordinatorEmail] = React.useState('');
+  const [newCoordinatorPass, setNewCoordinatorPass] = React.useState('');
+
+  const createCoordinator = async () => {
+    if (!newCoordinatorEmail || !newCoordinatorPass) return;
+    try {
+      const res = await fetch('http://localhost:4000/api/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({ email: newCoordinatorEmail, password: newCoordinatorPass, role: 'coordinator' })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Error creando coordinador');
+      }
+      const created = await res.json();
+      setNewCoordinatorEmail('');
+      setNewCoordinatorPass('');
+      toast({ title: 'Coordinador creado', description: created.email });
+    } catch (err) {
+      toast({ title: 'Error', description: err.message || 'No se pudo crear coordinador', variant: 'destructive' });
+    }
+  };
 
   return (
     <>
@@ -207,6 +186,34 @@ const Admin = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h1 className="text-4xl font-bold mb-2">Panel de Administración</h1>
           <p className="text-blue-100">Gestiona y revisa las tesis enviadas al repositorio</p>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-white rounded-lg p-6 shadow">
+            <h3 className="text-sm text-gray-500">Tesis totales</h3>
+            <div className="text-2xl font-bold mt-2">{stats.theses}</div>
+          </div>
+          <div className="bg-white rounded-lg p-6 shadow">
+            <h3 className="text-sm text-gray-500">Coordinadores</h3>
+            <div className="text-2xl font-bold mt-2">{stats.coordinators}</div>
+          </div>
+          <div className="bg-white rounded-lg p-6 shadow">
+            <h3 className="text-sm text-gray-500">Acciones</h3>
+            <div className="mt-2">
+              <Button onClick={() => { loadTheses(); }} className="mr-2">Refrescar</Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg p-6 shadow mb-6">
+          <h2 className="text-lg font-semibold mb-3">Crear cuenta de Coordinador</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            <input className="p-2 border rounded" placeholder="Email" value={newCoordinatorEmail} onChange={(e) => setNewCoordinatorEmail(e.target.value)} />
+            <input className="p-2 border rounded" placeholder="Contraseña" type="password" value={newCoordinatorPass} onChange={(e) => setNewCoordinatorPass(e.target.value)} />
+            <Button onClick={createCoordinator}>Crear Coordinador</Button>
+          </div>
         </div>
       </div>
 

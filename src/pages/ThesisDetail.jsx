@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet';
 import { useParams, Link } from 'react-router-dom';
 import { Download, Share2, Copy, ArrowLeft, FileText, Calendar, User, GraduationCap } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { getUser, getToken } from '../lib/auth';
 // RUTAS CORREGIDAS
 import { Button } from '../ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
@@ -14,6 +15,8 @@ const ThesisDetail = () => {
   const { toast } = useToast();
   const [thesis, setThesis] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [pdfUrl, setPdfUrl] = useState(null);
+  const [loadingPdf, setLoadingPdf] = useState(false);
 
   useEffect(() => {
     loadThesis();
@@ -21,20 +24,11 @@ const ThesisDetail = () => {
 
   const loadThesis = async () => {
     try {
-      const { data, error } = await supabase
-        .from('theses')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-      if (error) throw error;
+      const token = getToken();
+      const res = await fetch(`http://localhost:4000/api/theses/${id}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!res.ok) throw new Error('Not found');
+      const data = await res.json();
       setThesis(data);
-      
-      await supabase
-        .from('theses')
-        .update({ downloads: (data.downloads || 0) })
-        .eq('id', id);
-        
     } catch (error) {
       console.error('Error loading thesis:', error);
     } finally {
@@ -42,23 +36,45 @@ const ThesisDetail = () => {
     }
   };
 
-  const handleDownload = async () => {
+  const loadPdf = async () => {
+    if (!id) return;
+    const token = getToken();
+    if (!token) {
+      toast({ title: 'Acceso restringido', description: 'Debes iniciar sesión para ver el PDF', variant: 'destructive' });
+      window.location.href = '/login';
+      return;
+    }
     try {
-      const { error } = await supabase
-        .from('theses')
-        .update({ downloads: (thesis.downloads || 0) + 1 })
-        .eq('id', id);
+      setLoadingPdf(true);
+      const res = await fetch(`http://localhost:4000/api/theses/${id}/pdf`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Error fetching PDF');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setPdfUrl(url);
+    } catch (e) {
+      console.error('Error loading PDF', e);
+      toast({ title: 'Error', description: 'No se pudo cargar el PDF', variant: 'destructive' });
+    } finally {
+      setLoadingPdf(false);
+    }
+  };
 
-      if (error) throw error;
-
-      toast({
-        title: "Descarga iniciada",
-        description: "El archivo PDF se está descargando...",
-      });
-
+  const handleDownload = async () => {
+    const user = getUser();
+    if (!user) {
+      toast({ title: 'Acceso restringido', description: 'Debes iniciar sesión con tu matrícula y CURP para descargar esta tesis', variant: 'destructive' });
+      window.location.href = '/login';
+      return;
+    }
+    try {
+      const pdfUrl = `http://localhost:4000/api/theses/${id}/pdf`;
+      toast({ title: 'Descarga iniciada', description: 'El archivo PDF se está descargando...' });
+      // open in new tab
+      window.open(pdfUrl, '_blank');
+      // optimistic update
       setThesis(prev => ({ ...prev, downloads: (prev.downloads || 0) + 1 }));
     } catch (error) {
-      console.error('Error incrementing downloads:', error);
+      console.error('Error downloading PDF:', error);
     }
   };
 
@@ -200,15 +216,29 @@ const ThesisDetail = () => {
                 <div className="bg-gray-100 rounded-lg p-12 text-center">
                   <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
                   <p className="text-gray-600 mb-4">El visor de PDF se mostrará aquí</p>
-                  <Button
-                    variant="outline"
-                    onClick={() => toast({
-                      title: "Visor de PDF",
-                      description: "🚧 Esta funcionalidad aún no está implementada, pero puedes solicitarla en tu siguiente prompt! 🚀"
-                    })}
-                  >
-                    Abrir Visor
-                  </Button>
+                  {pdfUrl ? (
+                    <iframe src={pdfUrl} title="PDF" className="w-full h-96 border" />
+                  ) : (
+                    (() => {
+                      const user = getUser();
+                      if (!user) {
+                        return (
+                          <Button onClick={() => { window.location.href = '/login'; }} variant="outline">
+                            Iniciar sesión para ver
+                          </Button>
+                        );
+                      }
+                      return (
+                        <Button
+                          variant="outline"
+                          onClick={loadPdf}
+                          disabled={loadingPdf}
+                        >
+                          {loadingPdf ? 'Cargando...' : 'Abrir Visor'}
+                        </Button>
+                      );
+                    })()
+                  )}
                 </div>
               </div>
             </motion.div>

@@ -40,15 +40,11 @@ const Catalog = () => {
 
   const loadTheses = async () => {
     try {
-      const { data, error } = await supabase
-        .from('theses')
-        .select('*')
-        .eq('status', 'approved');
-
-      if (error) throw error;
-      
+      const q = searchQuery ? `?q=${encodeURIComponent(searchQuery)}` : '';
+      const res = await fetch(`http://localhost:4000/api/theses${q}`);
+      if (!res.ok) throw new Error('Error fetching theses');
+      const data = await res.json();
       const sortedData = (data || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      
       setTheses(sortedData);
       
       const advisors = [...new Set(sortedData.map(t => t.advisor).filter(Boolean))];

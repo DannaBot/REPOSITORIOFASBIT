@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Menu, X, Upload } from 'lucide-react'; // Eliminé BookOpen porque ya no se usa
 import { Button } from '../ui/button';
+import { getUser, logout } from '../lib/auth';
 
 // --- IMPORTANTE: Importa tu imagen aquí ---
 // Asegúrate de que el archivo exista en src/assets/
@@ -10,6 +11,7 @@ import logoFasbit from '../components/logoFasbit.png';
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
+  const user = getUser();
 
   const isActive = (path) => {
     return location.pathname === path ? "text-blue-600 font-semibold" : "text-gray-600 hover:text-blue-600";
@@ -37,13 +39,24 @@ const Navbar = () => {
             <Link to="/catalog" className={isActive('/catalog')}>Catálogo</Link>
             <Link to="/guide" className={isActive('/guide')}>Guía</Link>
             <Link to="/contact" className={isActive('/contact')}>Contacto</Link>
-            <Link to="/admin" className={isActive('/admin')}>Admin</Link>
-            
-            <Link to="/upload">
-              <Button size="sm" className="gap-2">
-                <Upload className="h-4 w-4" /> Subir Tesis
-              </Button>
-            </Link>
+            {!user ? (
+              <Link to="/login" className={isActive('/login')}>Login</Link>
+            ) : (
+              <>
+                <Link to={user.role === 'admin' ? '/admin' : '/coordinator'} className={isActive(user.role === 'admin' ? '/admin' : '/coordinator')}>
+                  Panel
+                </Link>
+                <button onClick={() => { logout(); window.location.href = '/'; }} className="text-gray-600 hover:text-blue-600">Cerrar sesión</button>
+              </>
+            )}
+
+            {user && user.role === 'coordinator' && (
+              <Link to="/upload">
+                <Button size="sm" className="gap-2">
+                  <Upload className="h-4 w-4" /> Subir Tesis
+                </Button>
+              </Link>
+            )}
           </div>
 
           {/* Botón Menú Móvil */}
@@ -90,13 +103,15 @@ const Navbar = () => {
             >
               Contacto
             </Link>
-            <Link 
-              to="/upload" 
-              onClick={() => setIsOpen(false)}
-              className="block px-3 py-2 mt-4 text-center rounded-md bg-blue-50 text-blue-600 font-semibold"
-            >
-              Subir Tesis
-            </Link>
+            {user && user.role === 'coordinator' && (
+              <Link 
+                to="/upload" 
+                onClick={() => setIsOpen(false)}
+                className="block px-3 py-2 mt-4 text-center rounded-md bg-blue-50 text-blue-600 font-semibold"
+              >
+                Subir Tesis
+              </Link>
+            )}
           </div>
         </div>
       )}

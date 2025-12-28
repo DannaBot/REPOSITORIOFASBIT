@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { FileText, Upload, CheckCircle, Clock, AlertCircle, BookOpen } from 'lucide-react';
 // RUTA CORREGIDA
 import { Button } from '../ui/button';
+import { getUser } from '../lib/auth';
 
 const Guide = () => {
   const steps = [
@@ -204,11 +205,13 @@ const Guide = () => {
           <p className="text-xl text-blue-100 mb-8">
             Sigue nuestra guía paso a paso y contribuye al conocimiento científico
           </p>
-          <Link to="/upload">
-            <Button size="lg" variant="secondary" className="bg-white text-blue-600 hover:bg-blue-50">
-              Comenzar Proceso de Carga
-            </Button>
-          </Link>
+          {(() => { const user = getUser(); return user && user.role === 'coordinator' ? (
+            <Link to="/upload">
+              <Button size="lg" variant="secondary" className="bg-white text-blue-600 hover:bg-blue-50">
+                Comenzar Proceso de Carga
+              </Button>
+            </Link>
+          ) : null })()}
         </motion.div>
       </div>
     </>

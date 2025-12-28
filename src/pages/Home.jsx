@@ -4,35 +4,28 @@ import { Search, FileText, Download, TrendingUp, ArrowRight } from "lucide-react
 import { motion } from "framer-motion";
 // RUTAS CORREGIDAS
 import { Button } from "../ui/button";
-import { supabase } from "../lib/supabase";
+import { getUser } from '../lib/auth';
+
+const API = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 const Home = () => {
   const [featuredTheses, setFeaturedTheses] = useState([]);
-  const [stats, setStats] = useState({
-    totalTheses: 0,
-    downloads: 0,
-    activeUsers: 0
-  });
+  const user = getUser();
 
   useEffect(() => {
-    const fetchStats = async () => {
-      // Simulación de carga de datos usando tu mock de Supabase
-      const { data } = await supabase
-        .from('theses')
-        .select('*')
-        .limit(3);
-      
-      if (data) setFeaturedTheses(data);
-      
-      // Datos simulados para estadísticas
-      setStats({
-        totalTheses: 124,
-        downloads: 450,
-        activeUsers: 89
-      });
+    const fetchData = async () => {
+      try {
+        const res = await fetch(`${API}/api/theses`);
+        if (!res.ok) throw new Error('Failed to load');
+        const data = await res.json();
+        // take first 3
+        setFeaturedTheses((data || []).slice(0, 3));
+      } catch (e) {
+        console.error('Failed to fetch recent theses', e);
+      }
     };
 
-    fetchStats();
+    fetchData();
   }, []);
 
   return (
@@ -78,33 +71,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* Stats Section */}
-      <section className="max-w-7xl mx-auto px-4 w-full -mt-10 relative z-10">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {[
-            { label: "Tesis Publicadas", value: stats.totalTheses, icon: FileText },
-            { label: "Descargas Totales", value: stats.downloads, icon: Download },
-            { label: "Usuarios Activos", value: stats.activeUsers, icon: TrendingUp },
-          ].map((stat, index) => (
-            <motion.div
-              key={index}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: index * 0.1 }}
-              className="bg-white p-6 rounded-xl shadow-lg border border-gray-100 flex items-center space-x-4"
-            >
-              <div className="p-3 bg-blue-50 rounded-full text-blue-600">
-                <stat.icon className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500 font-medium">{stat.label}</p>
-                <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      </section>
+      {/* Stats removed: no fake statistics shown on home */}
 
       {/* Recent Uploads */}
       <section className="max-w-7xl mx-auto px-4 w-full space-y-6">
@@ -132,9 +99,11 @@ const Home = () => {
           ) : (
             <div className="col-span-3 text-center py-10 bg-gray-50 rounded-lg border-dashed border-2">
               <p className="text-gray-500">Aún no hay tesis destacadas cargadas en el sistema.</p>
-              <Link to="/upload" className="mt-4 inline-block">
-                <Button>Subir la primera tesis</Button>
-              </Link>
+              {user && user.role === 'coordinator' && (
+                <Link to="/upload" className="mt-4 inline-block">
+                  <Button>Subir la primera tesis</Button>
+                </Link>
+              )}
             </div>
           )}
         </div>

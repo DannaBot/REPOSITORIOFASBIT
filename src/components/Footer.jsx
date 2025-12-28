@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { getUser } from '../lib/auth';
 import { Github, Twitter, Facebook, Mail, MapPin, Phone } from 'lucide-react';
 
 const Footer = () => {
@@ -29,7 +30,7 @@ const Footer = () => {
             <h3 className="text-white text-sm font-bold uppercase tracking-wider mb-4">Enlaces</h3>
             <ul className="space-y-2 text-sm">
               <li><Link to="/catalog" className="hover:text-white transition-colors">Catálogo de Tesis</Link></li>
-              <li><Link to="/upload" className="hover:text-white transition-colors">Subir Documento</Link></li>
+              {(() => { const user = getUser(); return user && user.role === 'coordinator' ? <li><Link to="/upload" className="hover:text-white transition-colors">Subir Documento</Link></li> : null })()}
               <li><Link to="/guide" className="hover:text-white transition-colors">Guía de Autores</Link></li>
               <li><Link to="/admin" className="hover:text-white transition-colors">Acceso Admin</Link></li>
             </ul>

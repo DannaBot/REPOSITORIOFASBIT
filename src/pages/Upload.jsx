@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { ChevronRight, ChevronLeft, Upload as UploadIcon, CheckCircle, FileText, Shield } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-// RUTAS CORREGIDAS
 import { Button } from '../ui/button';
 import { Label } from '../ui/label';
 import { Checkbox } from '../ui/checkbox';
 import { useToast } from '../ui/use-toast';
 import { supabase } from '../lib/supabase';
+import { getUser } from '../lib/auth';
+
+const API = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 const Upload = () => {
   const { toast } = useToast();
@@ -23,6 +25,7 @@ const Upload = () => {
     career: '',
     year: new Date().getFullYear().toString(),
     keywords: '',
+    thesisDate: new Date().toISOString().slice(0,10),
     // Step 2
     pdfFile: null,
     approvalFile: null,
@@ -30,6 +33,7 @@ const Upload = () => {
     copyrightAgreement: false,
     openAccessAgreement: false
   });
+  const [visible, setVisible] = useState(true);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -85,6 +89,12 @@ const Upload = () => {
   };
 
   const handleSubmit = async () => {
+    const user = getUser();
+    if (!user || user.role !== 'coordinator') {
+      toast({ title: 'Acceso denegado', description: 'Debes iniciar sesión como coordinador para subir tesis', variant: 'destructive' });
+      window.location.href = '/login';
+      return;
+    }
     if (!formData.copyrightAgreement || !formData.openAccessAgreement) {
       toast({
         title: "Confirmación requerida",
@@ -95,29 +105,46 @@ const Upload = () => {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('theses')
-        .insert([
-          {
-            title: formData.title,
-            author: formData.studentName,
-            student_id: formData.studentId,
-            email: formData.email,
-            abstract: formData.abstract,
-            advisor: formData.advisor,
-            career: formData.career,
-            year: parseInt(formData.year),
-            keywords: formData.keywords.split(',').map(k => k.trim()),
-            status: 'pending',
-            downloads: 0
-          }
-        ]);
+      const fd = new FormData();
+      fd.append('studentName', formData.studentName);
+      fd.append('studentId', formData.studentId);
+      fd.append('email', formData.email);
+      fd.append('title', formData.title);
+      fd.append('abstract', formData.abstract);
+      fd.append('advisor', formData.advisor);
+      fd.append('career', formData.career);
+      fd.append('year', formData.year);
+      fd.append('keywords', formData.keywords);
+      if (formData.pdfFile) fd.append('pdfFile', formData.pdfFile);
+      if (formData.approvalFile) fd.append('approvalFile', formData.approvalFile);
+      // send hidden flag (0 = visible, 1 = hidden)
+      fd.append('hidden', visible ? '0' : '1');
 
-      if (error) throw error;
+      const token = user.token;
+      const res = await fetch(`${API}/api/upload`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd
+      });
+
+      if (!res.ok) {
+        let errBody = null;
+        try {
+          errBody = await res.json();
+        } catch (e) {
+          try {
+            const text = await res.text();
+            errBody = { error: text };
+          } catch (_) {
+            errBody = { error: `HTTP ${res.status} ${res.statusText}` };
+          }
+        }
+        throw new Error(errBody && (errBody.error || errBody.message) ? (errBody.error || errBody.message) : `Upload failed (status ${res.status})`);
+      }
 
       toast({
         title: "¡Éxito!",
-        description: "Tu tesis ha sido enviada para revisión. Recibirás una notificación por correo electrónico.",
+        description: "Tu tesis ha sido subida correctamente.",
       });
 
       setFormData({
@@ -140,7 +167,7 @@ const Upload = () => {
       console.error('Error submitting thesis:', error);
       toast({
         title: "Error",
-        description: "Hubo un problema al enviar tu tesis. Por favor intenta nuevamente.",
+        description: error.message || "Hubo un problema al enviar tu tesis.",
         variant: "destructive"
       });
     }
@@ -292,10 +319,8 @@ const Upload = () => {
                           className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         >
                           <option value="">Selecciona...</option>
-                          <option value="Biotecnología">Biotecnología</option>
-                          <option value="Ingeniería Biomédica">Ingeniería Biomédica</option>
-                          <option value="Bioinformática">Bioinformática</option>
-                          <option value="Sistemas Biológicos">Sistemas Biológicos</option>
+                          <option value="Ingenieria en Innovacion Tecnologica">Ingenieria en Innovacion Tecnologica</option>
+                          <option value="Biologia">Biologia</option>
                         </select>
                       </div>
                     </div>
@@ -313,6 +338,17 @@ const Upload = () => {
                           className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
                       </div>
+                      <div>
+                        <Label htmlFor="thesisDate">Fecha de la tesis</Label>
+                        <input
+                          id="thesisDate"
+                          type="date"
+                          value={formData.thesisDate}
+                          onChange={(e) => handleInputChange('thesisDate', e.target.value)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                        if (formData.thesisDate) fd.append('thesis_date', formData.thesisDate);
                       
                       <div>
                         <Label htmlFor="keywords">Palabras Clave (separadas por comas)</Label>
@@ -383,6 +419,12 @@ const Upload = () => {
                       <p className="text-sm text-blue-800">
                         <strong>Nota:</strong> Los archivos deben estar en formato PDF y no exceder 50 MB cada uno.
                       </p>
+                    </div>
+                    <div className="mt-4">
+                      <label className="inline-flex items-center gap-2">
+                        <input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} />
+                        <span className="text-sm">Publicar visible (los usuarios verán la tesis inmediatamente)</span>
+                      </label>
                     </div>
                   </motion.div>
                 )}

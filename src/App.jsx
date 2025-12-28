@@ -14,6 +14,9 @@ import Guide from './pages/Guide';
 import Contact from './pages/Contact';
 import Catalog from './pages/Catalog';
 import Admin from './pages/Admin';
+import Login from './pages/Login';
+import Coordinator from './pages/Coordinator';
+import ProtectedRoute from './components/ProtectedRoute';
 import About from './pages/About';
 
 function App() {
@@ -33,7 +36,9 @@ function App() {
             <Route path="/catalog" element={<Catalog />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/thesis/:id" element={<ThesisDetail />} />
-            <Route path="/admin" element={<Admin />} />
+            <Route path="/admin" element={<ProtectedRoute role="admin"><Admin /></ProtectedRoute>} />
+            <Route path="/coordinator" element={<ProtectedRoute role="coordinator"><Coordinator /></ProtectedRoute>} />
+            <Route path="/login" element={<Login />} />
           </Routes>
         </main>
 
