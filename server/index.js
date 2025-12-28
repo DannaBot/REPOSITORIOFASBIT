@@ -166,29 +166,38 @@ app.get('/api/theses', (req, res) => {
     }
   })();
 });
-
 app.get('/api/theses/:id', (req, res) => {
   (async () => {
     try {
       const id = req.params.id;
-      // require auth to view thesis details
+      
+      // 1. Intentamos leer el usuario (si existe), pero NO bloqueamos si no hay token
+      let payload = null;
       const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ error: 'Token required to view thesis' });
-      let payload;
-      try {
-        payload = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
-      } catch (e) {
-        return res.status(401).json({ error: 'Invalid token' });
+      
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+          payload = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+        } catch (e) {
+          // Si el token está mal, no pasa nada, tratamos al usuario como visitante
+        }
       }
 
       const pool = getPool();
       const [rows] = await pool.execute('SELECT *, thesis_date FROM theses WHERE id = ?', [id]);
       const row = rows && rows[0];
+      
       if (!row) return res.status(404).json({ error: 'Not found' });
-      // If thesis is hidden or not approved, only admin/coordinator can view
-      if ((row.hidden === 1 || row.status !== 'approved') && !(payload.role === 'admin' || payload.role === 'coordinator')) {
+
+      // 2. Solo bloqueamos si la tesis es PRIVADA (hidden) o NO APROBADA
+      const isRestricted = (row.hidden === 1 || row.status !== 'approved');
+      const isAdminOrCoord = payload && (payload.role === 'admin' || payload.role === 'coordinator');
+
+      // Si es restringida y NO eres admin/coordinador -> Prohibido (403)
+      if (isRestricted && !isAdminOrCoord) {
         return res.status(403).json({ error: 'Forbidden' });
       }
+
       row.keywords = row.keywords ? JSON.parse(row.keywords) : [];
       res.json(row);
     } catch (err) {
@@ -197,7 +206,6 @@ app.get('/api/theses/:id', (req, res) => {
     }
   })();
 });
-
 // Admin-only: update thesis status
 app.post('/api/theses/:id/status', authenticateToken, requireRole('coordinator'), async (req, res) => {
   const id = req.params.id;
@@ -296,8 +304,12 @@ app.post('/api/upload', authenticateToken, requireRole('coordinator'), upload.fi
     const fulltext = (pdfData && pdfData.text) ? pdfData.text : '';
 
     const keywords = body.keywords ? JSON.stringify(body.keywords.split(',').map(k => k.trim())) : JSON.stringify([]);
-    // Set initial workflow status to 'pending'. Visibility controlled by `hidden` flag (0 = visible, 1 = hidden)
-    const status = 'pending';
+    
+    // --- CAMBIO IMPORTANTE AQUÍ ---
+    // Forzamos el estado a 'approved' para que aparezca visible inmediatamente
+    const status = 'approved';
+    // -----------------------------
+    
     const hidden = (body.hidden === '1' || body.hidden === 'true') ? 1 : 0;
     const createdAt = new Date();
     const pool = getPool();

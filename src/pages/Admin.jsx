@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
-import { XCircle, Eye, FileText } from 'lucide-react';
+// CORRECCIÓN AQUÍ: Agregué Clock, AlertCircle y CheckCircle a la importación
+import { XCircle, Eye, FileText, Clock, AlertCircle, CheckCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
-// RUTAS CORREGIDAS
 import { Button } from '../ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { useToast } from '../ui/use-toast';
