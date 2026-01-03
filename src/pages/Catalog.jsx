@@ -173,28 +173,6 @@ const Catalog = () => {
                 </div>
 
                 <div>
-                  <h3 className="font-medium text-gray-900 mb-3">Asesor</h3>
-                  <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {filters.advisors.length > 0 ? (
-                      filters.advisors.slice(0, 5).map((advisor) => (
-                        <div key={advisor} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`advisor-${advisor}`}
-                            checked={selectedFilters.advisors.includes(advisor)}
-                            onCheckedChange={() => toggleFilter('advisors', advisor)}
-                          />
-                          <Label htmlFor={`advisor-${advisor}`} className="text-sm cursor-pointer">
-                            {advisor}
-                          </Label>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-xs text-gray-400">Sin asesores</p>
-                    )}
-                  </div>
-                </div>
-
-                <div>
                   <h3 className="font-medium text-gray-900 mb-3">Carrera</h3>
                   <div className="space-y-2">
                     {filters.careers.length > 0 ? (
