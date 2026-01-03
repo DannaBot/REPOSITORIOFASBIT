@@ -174,8 +174,9 @@ const Upload = () => {
                         <Label>Carrera *</Label>
                         <select className="border p-2 rounded w-full" value={formData.career} onChange={e => handleInputChange('career', e.target.value)}>
                           <option value="">Selecciona...</option>
-                          <option>Ingenieria en Innovacion Tecnologica</option>
-                          <option>Biologia</option>
+                          <option>Ingeniería en Innovación Tecnológica</option>
+                          <option>Biología</option>
+                          <option>Maestría en Ingeniería</option>
                         </select>
                       </div>
                     </div>
