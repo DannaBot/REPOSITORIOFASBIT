@@ -11,9 +11,9 @@ const Guide = () => {
   const steps = [
     {
       icon: FileText,
-      title: 'Preparación de Documentos',
+      title: 'Entrega de documentos',
       items: [
-        'Asegúrate de que tu tesis esté en formato PDF',
+        'Una vez aprobada tu tesis, entrega el documento en formato PDF',
         'El archivo no debe exceder 50 MB',
         'Verifica que el documento sea legible y esté completo',
         'Incluye portada, resumen, introducción, metodología, resultados, conclusiones y referencias'
@@ -23,28 +23,28 @@ const Guide = () => {
       icon: Upload,
       title: 'Proceso de Carga',
       items: [
-        'Completa el formulario con tus datos personales y académicos',
-        'Ingresa los metadatos de tu tesis (título, resumen, palabras clave)',
-        'Carga el archivo PDF de tu tesis',
-        'Adjunta el documento de aprobación de tu asesor',
+        'El coordinador de tu carrera, será el encargado de subir la tesis al sistema',
+        'Ingresará los metadatos de tu tesis (título, resumen, palabras clave)',
+        'Cargará el archivo PDF de tu tesis',
+        'Adjuntará el documento de aprobación de tu asesor',
         'Acepta los términos de derechos de autor y acceso abierto'
       ]
     },
     {
       icon: Clock,
-      title: 'Revisión y Aprobación',
+      title: 'Espera',
       items: [
-        'Tu tesis será revisada por el equipo de FASBIT',
-        'El proceso de revisión puede tomar de 3 a 5 días hábiles',
-        'Recibirás notificaciones por correo electrónico sobre el estado',
-        'Si se requieren correcciones, se te notificará con las observaciones'
+        'Tu tesis y la de tus compañeros están en cola para ser subidas',
+        'No te preocupes, el proceso puede tomar algunos días hábiles',
+        'Recuerda que este es un repositorio, no una publicación formal',
+        'No subimos tesis que no hayan sido aprobadas recientemente por la institución'
       ]
     },
     {
       icon: CheckCircle,
       title: 'Publicación',
       items: [
-        'Una vez aprobada, tu tesis será publicada en el repositorio',
+        'Listo, tu tesis fue aprobada y publicada en el repositorio digital',
         'Será accesible para consulta y descarga por la comunidad académica',
         'Aparecerá en los resultados de búsqueda del catálogo',
         'Podrás compartir el enlace directo a tu investigación'
@@ -58,7 +58,7 @@ const Guide = () => {
       items: [
         'Formato: PDF exclusivamente',
         'Tamaño máximo: 50 MB',
-        'Orientación: Vertical (portrait)',
+        'Orientación: Vertical',
         'Fuente legible y tamaño adecuado',
         'Sin contraseñas o restricciones de copia'
       ]
