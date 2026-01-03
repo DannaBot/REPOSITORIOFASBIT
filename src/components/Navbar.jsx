@@ -71,7 +71,7 @@ const Navbar = () => {
         </div>
       </div>
 
-      {/* Menú Móvil Desplegable */}
+      {/* Menú Móvil Desplegable, hola*/}
       {isOpen && (
         <div className="md:hidden bg-white border-t border-gray-100 pb-4">
           <div className="px-2 pt-2 space-y-1">
