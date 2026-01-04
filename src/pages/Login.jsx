@@ -39,7 +39,7 @@ const Login = () => {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="w-full mb-3 p-2 border rounded"
-          placeholder="Matrícula (numérica)"
+          placeholder="Usuario"
         />
 
         <label className="block mb-2 text-sm font-medium">Contraseña o CURP</label>
