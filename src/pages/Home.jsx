@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Search, FileText, Download, TrendingUp, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
-// RUTAS CORREGIDAS
 import { Button } from "../ui/button";
 import { getUser } from '../lib/auth';
 
@@ -10,7 +9,9 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 const Home = () => {
   const [featuredTheses, setFeaturedTheses] = useState([]);
+  const [searchTerm, setSearchTerm] = useState(""); // Nuevo estado para búsqueda
   const user = getUser();
+  const navigate = useNavigate(); // Hook para navegar
 
   useEffect(() => {
     const fetchData = async () => {
@@ -18,7 +19,6 @@ const Home = () => {
         const res = await fetch(`${API}/api/theses`);
         if (!res.ok) throw new Error('Failed to load');
         const data = await res.json();
-        // take first 3
         setFeaturedTheses((data || []).slice(0, 3));
       } catch (e) {
         console.error('Failed to fetch recent theses', e);
@@ -27,6 +27,13 @@ const Home = () => {
 
     fetchData();
   }, []);
+
+  // Función para manejar la búsqueda
+  const handleSearch = () => {
+    if (searchTerm.trim()) {
+      navigate(`/catalog?search=${encodeURIComponent(searchTerm)}`);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-8 pb-10">
@@ -62,16 +69,21 @@ const Home = () => {
                 type="text" 
                 placeholder="Buscar por título, autor o palabra clave..." 
                 className="w-full pl-10 pr-4 py-3 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               />
             </div>
-            <Button size="lg" className="bg-blue-500 hover:bg-blue-600 text-white">
+            <Button 
+              size="lg" 
+              className="bg-blue-500 hover:bg-blue-600 text-white"
+              onClick={handleSearch}
+            >
               Buscar Tesis
             </Button>
           </motion.div>
         </div>
       </section>
-
-      {/* Stats removed: no fake statistics shown on home */}
 
       {/* Recent Uploads */}
       <section className="max-w-7xl mx-auto px-4 w-full space-y-6">
