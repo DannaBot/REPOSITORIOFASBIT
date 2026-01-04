@@ -225,58 +225,7 @@ const Admin = () => {
               Aprobadas ({filterThesesByStatus('approved').length})
             </TabsTrigger>
           </TabsList>
-
-          <TabsContent value="pending" className="space-y-6">
-            {filterThesesByStatus('pending').length > 0 ? (
-              filterThesesByStatus('pending').map(thesis => (
-                <ThesisCard key={thesis.id} thesis={thesis} />
-              ))
-            ) : (
-              <div className="text-center py-12 text-gray-500">
-                <FileText className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                <p>No hay tesis pendientes de revisión</p>
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="corrections" className="space-y-6">
-            {filterThesesByStatus('corrections').length > 0 ? (
-              filterThesesByStatus('corrections').map(thesis => (
-                <ThesisCard key={thesis.id} thesis={thesis} />
-              ))
-            ) : (
-              <div className="text-center py-12 text-gray-500">
-                <FileText className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                <p>No hay tesis con correcciones solicitadas</p>
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="approved" className="space-y-6">
-            {filterThesesByStatus('approved').length > 0 ? (
-              filterThesesByStatus('approved').map(thesis => (
-                <ThesisCard key={thesis.id} thesis={thesis} />
-              ))
-            ) : (
-              <div className="text-center py-12 text-gray-500">
-                <FileText className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                <p>No hay tesis aprobadas</p>
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="rejected" className="space-y-6">
-            {filterThesesByStatus('rejected').length > 0 ? (
-              filterThesesByStatus('rejected').map(thesis => (
-                <ThesisCard key={thesis.id} thesis={thesis} />
-              ))
-            ) : (
-              <div className="text-center py-12 text-gray-500">
-                <FileText className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                <p>No hay tesis rechazadas</p>
-              </div>
-            )}
-          </TabsContent>
+        
         </Tabs>
       </div>
     </>
