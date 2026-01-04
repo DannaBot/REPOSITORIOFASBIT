@@ -33,7 +33,7 @@ const Login = () => {
     <div className="max-w-md mx-auto py-12">
       <h1 className="text-2xl font-bold mb-4">Iniciar sesión</h1>
       <form onSubmit={handleSubmit} className="bg-white p-6 rounded shadow">
-        <label className="block mb-2 text-sm font-medium">Matrícula</label>
+        <label className="block mb-2 text-sm font-medium">Usuario o Matrícula</label>
         <input
           type="text"
           value={email}
@@ -42,7 +42,7 @@ const Login = () => {
           placeholder="Matrícula (numérica)"
         />
 
-        <label className="block mb-2 text-sm font-medium">CURP</label>
+        <label className="block mb-2 text-sm font-medium">Contraseña o CURP</label>
         <input
           type="password"
           value={password}
@@ -51,7 +51,7 @@ const Login = () => {
           placeholder="Contraseña"
         />
 
-        <p className="text-sm text-gray-600 mb-4">Inicia sesión con tu cuenta. Por defecto sólo el administrador podrá acceder hasta que cree coordinadores.</p>
+        <p className="text-sm text-gray-600 mb-4">Inicia sesión con tu cuenta.</p>
 
         <div className="flex gap-2">
           <Button type="submit">Entrar</Button>
