@@ -225,6 +225,22 @@ const Admin = () => {
               Aprobadas ({filterThesesByStatus('approved').length})
             </TabsTrigger>
           </TabsList>
+
+
+
+          <TabsContent value="approved" className="space-y-6">
+            {filterThesesByStatus('approved').length > 0 ? (
+              filterThesesByStatus('approved').map(thesis => (
+                <ThesisCard key={thesis.id} thesis={thesis} />
+              ))
+            ) : (
+              <div className="text-center py-12 text-gray-500">
+                <FileText className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                <p>No hay tesis aprobadas</p>
+              </div>
+            )}
+          </TabsContent>
+
         
         </Tabs>
       </div>
