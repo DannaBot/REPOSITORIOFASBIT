@@ -220,21 +220,9 @@ const Admin = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Tabs defaultValue="pending" className="w-full">
           <TabsList className="grid w-full grid-cols-4 mb-8">
-            <TabsTrigger value="pending" className="flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              Pendientes ({filterThesesByStatus('pending').length})
-            </TabsTrigger>
-            <TabsTrigger value="corrections" className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4" />
-              Correcciones ({filterThesesByStatus('corrections').length})
-            </TabsTrigger>
             <TabsTrigger value="approved" className="flex items-center gap-2">
               <CheckCircle className="h-4 w-4" />
               Aprobadas ({filterThesesByStatus('approved').length})
-            </TabsTrigger>
-            <TabsTrigger value="rejected" className="flex items-center gap-2">
-              <XCircle className="h-4 w-4" />
-              Rechazadas ({filterThesesByStatus('rejected').length})
             </TabsTrigger>
           </TabsList>
 
