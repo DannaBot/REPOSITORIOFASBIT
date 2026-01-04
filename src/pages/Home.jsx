@@ -9,9 +9,9 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 const Home = () => {
   const [featuredTheses, setFeaturedTheses] = useState([]);
-  const [searchTerm, setSearchTerm] = useState(""); // Nuevo estado para búsqueda
+  const [searchTerm, setSearchTerm] = useState("");
   const user = getUser();
-  const navigate = useNavigate(); // Hook para navegar
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -28,10 +28,11 @@ const Home = () => {
     fetchData();
   }, []);
 
-  // Función para manejar la búsqueda
+  // Función para manejar la búsqueda CORREGIDA
   const handleSearch = () => {
     if (searchTerm.trim()) {
-      navigate(`/catalog?search=${encodeURIComponent(searchTerm)}`);
+      // CAMBIO IMPORTANTE: Cambié 'search' por 'q' para que coincida con el Catálogo
+      navigate(`/catalog?q=${encodeURIComponent(searchTerm)}`);
     }
   };
 
