@@ -25,6 +25,7 @@ const Catalog = () => {
   });
 
   const [selectedFilters, setSelectedFilters] = useState({
+    yearRange: [2015, 2025], // CORRECCIÓN 1: Inicializamos el rango aquí
     advisors: [],
     careers: [],
     keywords: []
@@ -75,6 +76,14 @@ const Catalog = () => {
       );
     }
 
+    // CORRECCIÓN 2: Lógica para filtrar por año
+    if (selectedFilters.yearRange) {
+      filtered = filtered.filter(thesis => 
+        thesis.year >= selectedFilters.yearRange[0] && 
+        thesis.year <= selectedFilters.yearRange[1]
+      );
+    }
+
     if (selectedFilters.advisors.length > 0) {
       filtered = filtered.filter(thesis =>
         selectedFilters.advisors.includes(thesis.advisor)
@@ -107,6 +116,7 @@ const Catalog = () => {
 
   const clearFilters = () => {
     setSelectedFilters({
+      yearRange: [2015, 2025], // Resetear año también
       advisors: [],
       careers: [],
       keywords: []
@@ -159,16 +169,19 @@ const Catalog = () => {
               <div className="space-y-6">
                 <div>
                   <h3 className="font-medium text-gray-900 mb-3">Año</h3>
+                  {/* CORRECCIÓN 3: Conectar el Slider al estado */}
                   <Slider
                     defaultValue={filters.yearRange}
+                    value={selectedFilters.yearRange}
+                    onValueChange={(value) => setSelectedFilters(prev => ({ ...prev, yearRange: value }))}
                     max={2025}
                     min={2015}
                     step={1}
                     className="mb-2"
                   />
                   <div className="flex justify-between text-sm text-gray-600">
-                    <span>{filters.yearRange[0]}</span>
-                    <span>{filters.yearRange[1]}</span>
+                    <span>{selectedFilters.yearRange[0]}</span>
+                    <span>{selectedFilters.yearRange[1]}</span>
                   </div>
                 </div>
 
