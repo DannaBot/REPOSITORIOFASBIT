@@ -8,7 +8,6 @@ import { Button } from '../ui/button';
 import { Slider } from '../ui/slider';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
-import { supabase } from '../lib/supabase';
 
 const Catalog = () => {
   const [searchParams] = useSearchParams();
@@ -16,16 +15,21 @@ const Catalog = () => {
   const [theses, setTheses] = useState([]);
   const [filteredTheses, setFilteredTheses] = useState([]);
   const [showFilters, setShowFilters] = useState(true);
+
+  // Lógica para año "Infinito"
+  const currentYear = new Date().getFullYear();
+  const maxYear = currentYear + 5; // Llega hasta 5 años en el futuro (ej. 2031)
+  const minYear = 2015;
   
   const [filters, setFilters] = useState({
-    yearRange: [2015, 2025],
+    yearRange: [minYear, maxYear],
     advisors: [],
     careers: [],
     keywords: []
   });
 
   const [selectedFilters, setSelectedFilters] = useState({
-    yearRange: [2015, 2025], // CORRECCIÓN 1: Inicializamos el rango aquí
+    yearRange: [minYear, maxYear], 
     advisors: [],
     careers: [],
     keywords: []
@@ -76,7 +80,7 @@ const Catalog = () => {
       );
     }
 
-    // CORRECCIÓN 2: Lógica para filtrar por año
+    // Filtro de año dinámico
     if (selectedFilters.yearRange) {
       filtered = filtered.filter(thesis => 
         thesis.year >= selectedFilters.yearRange[0] && 
@@ -116,7 +120,7 @@ const Catalog = () => {
 
   const clearFilters = () => {
     setSelectedFilters({
-      yearRange: [2015, 2025], // Resetear año también
+      yearRange: [minYear, maxYear], // Resetea al rango dinámico
       advisors: [],
       careers: [],
       keywords: []
@@ -128,7 +132,7 @@ const Catalog = () => {
     <>
       <Helmet>
         <title>Catálogo de Tesis - FASBIT</title>
-        <meta name="description" content="Explora el catálogo completo de tesis y trabajos de investigación de FASBIT. Busca por título, autor o palabras clave." />
+        <meta name="description" content="Explora el catálogo completo de tesis y trabajos de investigación de FASBIT." />
       </Helmet>
 
       <div className="bg-blue-600 text-white py-12">
@@ -169,13 +173,14 @@ const Catalog = () => {
               <div className="space-y-6">
                 <div>
                   <h3 className="font-medium text-gray-900 mb-3">Año</h3>
-                  {/* CORRECCIÓN 3: Conectar el Slider al estado */}
+                  
+                  {/* Slider Dinámico */}
                   <Slider
-                    defaultValue={filters.yearRange}
+                    defaultValue={[minYear, maxYear]}
                     value={selectedFilters.yearRange}
                     onValueChange={(value) => setSelectedFilters(prev => ({ ...prev, yearRange: value }))}
-                    max={2025}
-                    min={2015}
+                    max={maxYear}
+                    min={minYear}
                     step={1}
                     className="mb-2"
                   />
