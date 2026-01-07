@@ -31,8 +31,6 @@ const Footer = () => {
             <ul className="space-y-2 text-sm">
               <li><Link to="/catalog" className="hover:text-white transition-colors">Catálogo de Tesis</Link></li>
               {(() => { const user = getUser(); return user && user.role === 'coordinator' ? <li><Link to="/upload" className="hover:text-white transition-colors">Subir Documento</Link></li> : null })()}
-              <li><Link to="/guide" className="hover:text-white transition-colors">Guía de Autores</Link></li>
-              <li><Link to="/admin" className="hover:text-white transition-colors">Acceso Admin</Link></li>
             </ul>
           </div>
 
