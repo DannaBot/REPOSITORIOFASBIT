@@ -68,7 +68,7 @@ const ThesisDetail = () => {
   const handleDownload = async () => {
     const user = getUser();
     if (!user) {
-      toast({ title: 'Acceso restringido', description: 'Debes iniciar sesión con tu matrícula y CURP para descargar esta tesis', variant: 'destructive' });
+      toast({ title: 'Acceso restringido', description: 'Debes iniciar sesión para descargar esta tesis', variant: 'destructive' });
       window.location.href = '/login';
       return;
     }
@@ -82,12 +82,31 @@ const ThesisDetail = () => {
     }
   };
 
+  // --- GENERADOR DE CITAS UABJO ---
   const generateCitation = (format) => {
     if (!thesis) return '';
+    
+    // Obtenemos datos limpios
+    const authorName = thesis.author || 'Autor Desconocido';
+    const year = thesis.year || new Date().getFullYear();
+    const title = thesis.title || 'Sin Título';
+    const career = thesis.career ? `Tesis de ${thesis.career}` : 'Tesis de Licenciatura';
+    
     if (format === 'APA') {
-      return `${thesis.author} (${thesis.year}). ${thesis.title}. FASBIT, Universidad.`;
+      // Estándar APA 7ma Edición para Tesis en Repositorio
+      // Apellido, N. (Año). Título en cursiva [Tesis de Grado, Universidad]. Repositorio.
+      return `${authorName}. (${year}). ${title} [${career}, Universidad Autónoma Benito Juárez de Oaxaca]. Repositorio Digital FASBIT.`;
     } else if (format === 'IEEE') {
-      return `${thesis.author}, "${thesis.title}," FASBIT, Universidad, ${thesis.year}.`;
+      // Estándar IEEE para Tesis
+      // Inicial. Apellido, "Título", Tesis de Grado, Depto, Univ, Ciudad, País, Año.
+      
+      // Intentamos abreviar el nombre para IEEE (Ej: Juan Perez -> J. Perez)
+      const nameParts = authorName.split(' ');
+      const abbrName = nameParts.length > 1 
+        ? `${nameParts[0][0]}. ${nameParts[nameParts.length - 1]}`
+        : authorName;
+
+      return `${abbrName}, "${title}," ${career}, Facultad de Sistemas Biológicos e Innovación Tecnológica, UABJO, Oaxaca, México, ${year}.`;
     }
     return '';
   };
@@ -177,7 +196,7 @@ const ThesisDetail = () => {
 
               <div className="mb-6">
                 <h2 className="text-xl font-semibold text-gray-900 mb-3">Resumen</h2>
-                <p className="text-gray-700 leading-relaxed">{thesis.abstract}</p>
+                <p className="text-gray-700 leading-relaxed text-justify">{thesis.abstract}</p>
               </div>
 
               {thesis.keywords && thesis.keywords.length > 0 && (
@@ -249,12 +268,16 @@ const ThesisDetail = () => {
                     <TabsTrigger value="IEEE">IEEE</TabsTrigger>
                   </TabsList>
                   <TabsContent value="APA" className="mt-4">
-                    <div className="bg-gray-50 rounded-lg p-4 mb-3"><p className="text-sm text-gray-700">{generateCitation('APA')}</p></div>
-                    <Button onClick={() => copyCitation('APA')} variant="outline" size="sm" className="w-full"><Copy className="h-4 w-4 mr-2" /> Copiar</Button>
+                    <div className="bg-gray-50 rounded-lg p-4 mb-3 border border-gray-200">
+                      <p className="text-sm text-gray-700 font-mono italic">{generateCitation('APA')}</p>
+                    </div>
+                    <Button onClick={() => copyCitation('APA')} variant="outline" size="sm" className="w-full"><Copy className="h-4 w-4 mr-2" /> Copiar Cita</Button>
                   </TabsContent>
                   <TabsContent value="IEEE" className="mt-4">
-                    <div className="bg-gray-50 rounded-lg p-4 mb-3"><p className="text-sm text-gray-700">{generateCitation('IEEE')}</p></div>
-                    <Button onClick={() => copyCitation('IEEE')} variant="outline" size="sm" className="w-full"><Copy className="h-4 w-4 mr-2" /> Copiar</Button>
+                    <div className="bg-gray-50 rounded-lg p-4 mb-3 border border-gray-200">
+                      <p className="text-sm text-gray-700 font-mono">{generateCitation('IEEE')}</p>
+                    </div>
+                    <Button onClick={() => copyCitation('IEEE')} variant="outline" size="sm" className="w-full"><Copy className="h-4 w-4 mr-2" /> Copiar Cita</Button>
                   </TabsContent>
                 </Tabs>
               </div>
@@ -281,7 +304,7 @@ const ThesisDetail = () => {
               {/* Encabezado compacto */}
               <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-gray-50 shrink-0">
                 <div className="flex items-center gap-4 overflow-hidden">
-                  <h3 className="font-semibold text-gray-900 truncate">{thesis.title}</h3>
+                  <h3 className="font-semibold text-gray-900 truncate max-w-md">{thesis.title}</h3>
                 </div>
                 <div className="flex items-center gap-2">
                   <Button size="sm" variant="outline" onClick={handleDownload}>

@@ -3,7 +3,6 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
 const multer = require('multer');
-const pdf = require('pdf-parse');
 const { init, getPool } = require('./db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -16,15 +15,17 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
+// Carpeta de archivos
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
+// Configuración Multer
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
-    // Nombre temporal
+    // Nombre temporal seguro
     const unique = Date.now() + '-' + Math.random().toString(36).slice(2, 9);
     const safe = file.originalname.replace(/[^a-z0-9.\-\_]/gi, '_');
     cb(null, `${unique}-${safe}`);
@@ -54,7 +55,7 @@ function requireRole(role) {
   };
 }
 
-// --- RUTAS DE LOGIN Y USUARIOS ---
+// --- RUTAS DE USUARIOS ---
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body || {}; 
   if (!email || !password) return res.status(400).json({ error: 'Datos requeridos' });
@@ -85,6 +86,41 @@ app.post('/api/users', authenticateToken, requireRole('admin'), async (req, res)
   }
 });
 
+app.get('/api/users/coordinators', authenticateToken, requireRole('admin'), async (req, res) => {
+  try {
+    const pool = getPool();
+    const [rows] = await pool.execute("SELECT id, email, created_at FROM users WHERE role = 'coordinator' ORDER BY created_at DESC");
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Error' });
+  }
+});
+
+app.delete('/api/users/:id', authenticateToken, requireRole('admin'), async (req, res) => {
+  const id = req.params.id;
+  try {
+    const pool = getPool();
+    await pool.execute('DELETE FROM users WHERE id = ?', [id]);
+    res.json({ message: 'Eliminado' });
+  } catch (err) {
+    res.status(500).json({ error: 'Error' });
+  }
+});
+
+app.put('/api/users/:id/password', authenticateToken, requireRole('admin'), async (req, res) => {
+  const id = req.params.id;
+  const { newPassword } = req.body;
+  if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: 'Min 6 chars' });
+  try {
+    const hash = bcrypt.hashSync(newPassword, 10);
+    const pool = getPool();
+    await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [hash, id]);
+    res.json({ message: 'Password updated' });
+  } catch (err) {
+    res.status(500).json({ error: 'Error' });
+  }
+});
+
 app.get('/api/stats', authenticateToken, async (req, res) => {
   try {
     const pool = getPool();
@@ -101,7 +137,7 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
 // 1. LISTAR
 app.get('/api/theses', (req, res) => {
   const qParam = req.query.q;
-  let sql = 'SELECT id, title, author, abstract, career, year, thesis_date, keywords, status, downloads, pdf_filename, approval_filename, student_id, created_at, hidden FROM theses';
+  let sql = 'SELECT id, title, author, abstract, career, year, thesis_date, keywords, status, downloads, pdf_filename, approval_filename, student_id, created_at, hidden, email, advisor FROM theses';
   const params = [];
   let showAll = false;
   
@@ -154,17 +190,46 @@ app.get('/api/theses/:id', async (req, res) => {
   }
 });
 
-// 3. EDITAR TESIS (Con Renombrado de Tesis y Aprobación)
+// 3. EDITAR TESIS (VERSIÓN CON LOGS Y LIMPIEZA DE DATOS)
 app.put('/api/theses/:id', authenticateToken, requireRole('coordinator'), upload.fields([{ name: 'pdfFile' }, { name: 'approvalFile' }]), async (req, res) => {
   const id = req.params.id;
-  const { title, author, student_id, year, career, abstract, keywords } = req.body || {};
+  let { title, author, student_id, year, career, abstract, keywords, email, advisor, thesis_date } = req.body || {};
   
-  // Archivos nuevos (si los hay)
+  // LIMPIEZA DE DATOS (Trim) para evitar errores por espacios
+  if (student_id) student_id = student_id.trim();
+  if (email) email = email.trim();
+
+  // --- LOGS PARA DETECTIVES (Mira esto en tu terminal negra) ---
+  console.log(`\n--- INTENTO DE EDICIÓN DE TESIS ID: ${id} ---`);
+  console.log(`Matrícula recibida: "${student_id}"`);
+
   const newPdf = req.files && req.files['pdfFile'] ? req.files['pdfFile'][0] : null;
   const newApproval = req.files && req.files['approvalFile'] ? req.files['approvalFile'][0] : null;
 
   try {
     const pool = getPool();
+
+    // --- VALIDACIÓN DE MATRÍCULA DUPLICADA ---
+    if (student_id) {
+      // Buscamos si existe la matrícula EN OTRA tesis (id != id actual)
+      const [duplicate] = await pool.execute('SELECT id, title FROM theses WHERE student_id = ? AND id != ?', [student_id, id]);
+      
+      console.log(`Buscando duplicados... Encontrados: ${duplicate.length}`);
+      
+      if (duplicate.length > 0) {
+        console.log(`❌ ALERTA: Matrícula duplicada con la tesis ID: ${duplicate[0].id}`);
+        
+        // Borrar archivos temporales si se subieron
+        if (newPdf && fs.existsSync(newPdf.path)) fs.unlinkSync(newPdf.path);
+        if (newApproval && fs.existsSync(newApproval.path)) fs.unlinkSync(newApproval.path);
+        
+        return res.status(400).json({ error: `La matrícula ${student_id} ya pertenece a otra tesis registrada.` });
+      }
+    } else {
+      console.log("⚠️ OJO: No llegó matrícula en la petición (student_id está vacío).");
+    }
+    // ---------------------------------------------
+
     const [rows] = await pool.execute('SELECT * FROM theses WHERE id = ?', [id]);
     const currentThesis = rows && rows[0];
     if (!currentThesis) return res.status(404).json({ error: 'Tesis no encontrada' });
@@ -176,7 +241,6 @@ app.put('/api/theses/:id', authenticateToken, requireRole('coordinator'), upload
     const safeMatricula = matriculaFinal.replace(/[^a-z0-9]/gi, '');
     const safeAutor = autorFinal.replace(/[^a-z0-9]/gi, '_');
 
-    // Nombres objetivo (sin extensión aún)
     const basePdfName = `tesis${safeMatricula}${safeAutor}`;
     const baseAppName = `aprobacion${safeMatricula}${safeAutor}`;
 
@@ -185,18 +249,15 @@ app.put('/api/theses/:id', authenticateToken, requireRole('coordinator'), upload
 
     // A) MANEJO DEL PDF
     if (newPdf) {
-      // Borrar viejo
       if (currentThesis.pdf_filename) {
         const oldPath = path.join(uploadsDir, currentThesis.pdf_filename);
         if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
       }
-      // Renombrar nuevo
       const ext = path.extname(newPdf.originalname) || '.pdf';
       const newName = basePdfName + ext;
       fs.renameSync(newPdf.path, path.join(uploadsDir, newName));
       finalPdfFilename = newName;
     } else if (finalPdfFilename) {
-      // Renombrar existente si cambiaron datos
       const ext = path.extname(finalPdfFilename);
       const newName = basePdfName + ext;
       if (finalPdfFilename !== newName) {
@@ -211,18 +272,15 @@ app.put('/api/theses/:id', authenticateToken, requireRole('coordinator'), upload
 
     // B) MANEJO DE APROBACIÓN
     if (newApproval) {
-      // Borrar viejo
       if (currentThesis.approval_filename) {
         const oldPath = path.join(uploadsDir, currentThesis.approval_filename);
         if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
       }
-      // Renombrar nuevo
-      const ext = path.extname(newApproval.originalname); // ej: .pdf o .jpg
+      const ext = path.extname(newApproval.originalname);
       const newName = baseAppName + ext;
       fs.renameSync(newApproval.path, path.join(uploadsDir, newName));
       finalAppFilename = newName;
     } else if (finalAppFilename) {
-      // Renombrar existente
       const ext = path.extname(finalAppFilename);
       const newName = baseAppName + ext;
       if (finalAppFilename !== newName) {
@@ -235,16 +293,17 @@ app.put('/api/theses/:id', authenticateToken, requireRole('coordinator'), upload
       }
     }
 
-    // Convertir keywords
     let keywordsString = keywords;
     if (Array.isArray(keywords)) keywordsString = JSON.stringify(keywords);
 
-    // Actualizar BD
     const query = `
       UPDATE theses 
-      SET title = ?, author = ?, student_id = ?, year = ?, career = ?, abstract = ?, keywords = ?, pdf_filename = ?, approval_filename = ?
+      SET title = ?, author = ?, student_id = ?, year = ?, career = ?, abstract = ?, keywords = ?, pdf_filename = ?, approval_filename = ?,
+          email = ?, advisor = ?, thesis_date = ?
       WHERE id = ?
     `;
+
+    const dateToSave = thesis_date || currentThesis.thesis_date;
 
     await pool.execute(query, [
       title || currentThesis.title, 
@@ -256,9 +315,13 @@ app.put('/api/theses/:id', authenticateToken, requireRole('coordinator'), upload
       keywordsString || currentThesis.keywords, 
       finalPdfFilename,
       finalAppFilename,
+      email || currentThesis.email,
+      advisor || currentThesis.advisor,
+      dateToSave,
       id
     ]);
 
+    console.log("✅ Edición exitosa.");
     res.json({ message: 'Actualización exitosa', id });
 
   } catch (err) {
@@ -267,23 +330,36 @@ app.put('/api/theses/:id', authenticateToken, requireRole('coordinator'), upload
   }
 });
 
-// 4. SUBIR TESIS (POST)
+// 4. SUBIR TESIS (Con Validación de Matrícula y Renombrado)
 app.post('/api/upload', authenticateToken, requireRole('coordinator'), upload.fields([{ name: 'pdfFile' }, { name: 'approvalFile' }]), async (req, res) => {
+  const body = req.body;
+  const pdfFile = req.files['pdfFile']?.[0];
+  const approvalFile = req.files['approvalFile']?.[0];
+
   try {
-    const body = req.body;
-    const pdfFile = req.files['pdfFile']?.[0];
-    const approvalFile = req.files['approvalFile']?.[0];
-    
     if (!pdfFile) return res.status(400).json({ error: 'PDF requerido' });
+
+    // --- VALIDACIÓN DE MATRÍCULA ÚNICA ---
+    if (body.studentId) {
+      const pool = getPool();
+      const [existing] = await pool.execute('SELECT id FROM theses WHERE student_id = ?', [body.studentId]);
+      
+      if (existing.length > 0) {
+        // Limpiar archivos subidos para no dejar basura
+        if (fs.existsSync(pdfFile.path)) fs.unlinkSync(pdfFile.path);
+        if (approvalFile && fs.existsSync(approvalFile.path)) fs.unlinkSync(approvalFile.path);
+        
+        return res.status(400).json({ error: `La matrícula ${body.studentId} ya tiene una tesis registrada.` });
+      }
+    }
+    // ---------------------------------------
 
     const safeMatricula = (body.studentId || 'SIN_MATRICULA').replace(/[^a-z0-9]/gi, '');
     const safeAutor = (body.studentName || 'SIN_AUTOR').replace(/[^a-z0-9]/gi, '_');
     
-    // Renombrar PDF
     const pdfName = `tesis${safeMatricula}${safeAutor}.pdf`;
     fs.renameSync(pdfFile.path, path.join(uploadsDir, pdfName));
 
-    // Renombrar Aprobación (si existe)
     let approvalName = null;
     if (approvalFile) {
       const ext = path.extname(approvalFile.originalname);
@@ -294,16 +370,23 @@ app.post('/api/upload', authenticateToken, requireRole('coordinator'), upload.fi
     const keywords = body.keywords ? JSON.stringify(body.keywords.split(',').map(k => k.trim())) : '[]';
     const pool = getPool();
 
-    const [result] = await pool.execute('INSERT INTO theses (title, author, student_id, email, abstract, advisor, career, year, thesis_date, keywords, status, hidden, downloads, pdf_filename, approval_filename, `fulltext`, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-      body.title || '', body.studentName || '', body.studentId || '', body.email || '',
-      body.abstract || '', body.advisor || '', body.career || '',
-      parseInt(body.year) || new Date().getFullYear(),
-      body.thesis_date || null, keywords, 'approved', 0, 0,
-      pdfName, approvalName, '', new Date()
-    ]);
+    const [result] = await pool.execute(
+      'INSERT INTO theses (title, author, student_id, email, abstract, advisor, career, year, thesis_date, keywords, status, hidden, downloads, pdf_filename, approval_filename, `fulltext`, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+      [
+        body.title || '', body.studentName || '', body.studentId || '', body.email || '',
+        body.abstract || '', body.advisor || '', body.career || '',
+        parseInt(body.year) || new Date().getFullYear(),
+        body.thesis_date || null, keywords, 'approved', 0, 0,
+        pdfName, approvalName, '', new Date()
+      ]
+    );
 
     res.json({ id: result.insertId });
   } catch (error) {
+    // Si falla algo más (ej: BD caída), limpiar también
+    if (pdfFile && fs.existsSync(pdfFile.path)) fs.unlinkSync(pdfFile.path);
+    if (approvalFile && fs.existsSync(approvalFile.path)) fs.unlinkSync(approvalFile.path);
+
     console.error('[upload] error', error);
     res.status(500).json({ error: 'Upload failed' });
   }
@@ -338,7 +421,7 @@ app.get('/api/theses/:id/pdf', authenticateToken, async (req, res) => {
   }
 });
 
-// 7. Borrar
+// 7. Borrar Tesis
 app.delete('/api/theses/:id', authenticateToken, requireRole('admin'), async (req, res) => {
   const id = req.params.id;
   try {

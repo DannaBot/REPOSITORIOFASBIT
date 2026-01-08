@@ -4,7 +4,6 @@ import { logout, getUser, getToken } from '../lib/auth';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../ui/button';
 import { Pencil, X, Save, Eye, EyeOff, FileText } from 'lucide-react';
-// 1. IMPORTAMOS EL HOOK DE TOAST
 import { useToast } from '../ui/use-toast';
 
 const Coordinator = () => {
@@ -28,9 +27,7 @@ const Coordinator = () => {
 };
 
 function CoordinatorBody() {
-  // 2. ACTIVAMOS EL TOAST
   const { toast } = useToast();
-  
   const [stats, setStats] = React.useState({ theses: 0, coordinators: 0 });
   const [theses, setTheses] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -42,10 +39,20 @@ function CoordinatorBody() {
   const loadData = async () => {
     try {
       const token = getToken();
-      const resStats = await fetch('http://localhost:4000/api/stats', { headers: { Authorization: `Bearer ${token}` } });
+      // Cabeceras para prohibir el caché
+      const noCacheHeaders = { 
+        Authorization: `Bearer ${token}`,
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      };
+
+      const resStats = await fetch('http://localhost:4000/api/stats', { headers: noCacheHeaders });
       if (resStats.ok) setStats(await resStats.json());
-      const resTheses = await fetch('http://localhost:4000/api/theses', { headers: { Authorization: `Bearer ${token}` } });
+
+      // TRUCO: Agregamos ?t=hora_actual para que la petición sea siempre única
+      const resTheses = await fetch(`http://localhost:4000/api/theses?t=${Date.now()}`, { headers: noCacheHeaders });
       if (resTheses.ok) setTheses(await resTheses.json());
+      
     } catch (e) {
       console.error('Error loading data', e);
     } finally {
@@ -64,12 +71,10 @@ function CoordinatorBody() {
       const updated = await res.json();
       setTheses(prev => prev.map(t => t.id === id ? { ...t, hidden: updated.hidden } : t));
       
-      // Toast discreto para visibilidad
       toast({
         description: currentHidden ? "Tesis ahora visible" : "Tesis ocultada",
         className: "bg-gray-800 text-white border-none",
       });
-
     } catch (e) { console.error(e); }
   };
 
@@ -79,6 +84,7 @@ function CoordinatorBody() {
   
     try {
       const formData = new FormData();
+      // Datos básicos
       formData.append('title', editingThesis.title);
       formData.append('author', editingThesis.author);
       formData.append('student_id', editingThesis.student_id || '');
@@ -86,9 +92,23 @@ function CoordinatorBody() {
       formData.append('career', editingThesis.career || '');
       formData.append('abstract', editingThesis.abstract || '');
       
-      const keys = Array.isArray(editingThesis.keywords) ? JSON.stringify(editingThesis.keywords) : (editingThesis.keywords || '[]');
-      formData.append('keywords', keys);
+      // NUEVOS CAMPOS AGREGADOS
+      formData.append('email', editingThesis.email || '');
+      formData.append('advisor', editingThesis.advisor || '');
+      // Si hay fecha, la mandamos. A veces viene completa ISO (2024-01-01T00...), cortamos a 10 chars
+      const dateVal = editingThesis.thesis_date ? new Date(editingThesis.thesis_date).toISOString().slice(0, 10) : '';
+      formData.append('thesis_date', dateVal);
+
+      // Keywords
+      let keywordsToSend = editingThesis.keywords;
+      if (typeof keywordsToSend === 'string') {
+        keywordsToSend = JSON.stringify(keywordsToSend.split(',').map(k => k.trim()).filter(k => k !== ''));
+      } else if (Array.isArray(keywordsToSend)) {
+        keywordsToSend = JSON.stringify(keywordsToSend);
+      }
+      formData.append('keywords', keywordsToSend);
       
+      // Archivos
       if (editingThesis.newPdfFile) {
         formData.append('pdfFile', editingThesis.newPdfFile);
       }
@@ -107,21 +127,17 @@ function CoordinatorBody() {
       await loadData(); 
       setEditingThesis(null);
       
-      // 3. TOAST VERDE DE ÉXITO
       toast({
         title: "¡Actualización exitosa!",
-        description: "Los datos y archivos se han guardado correctamente.",
-        className: "bg-green-600 text-white border-none", // Estilo verde bonito
+        description: "Los datos se han guardado correctamente.",
+        className: "bg-green-600 text-white border-none",
       });
-
     } catch (error) {
       console.error("Error al actualizar:", error);
-      
-      // 4. TOAST ROJO DE ERROR
       toast({
         title: "Error",
         description: "No se pudieron guardar los cambios.",
-        variant: "destructive", // Estilo rojo de alerta
+        variant: "destructive",
       });
     }
   };
@@ -187,51 +203,86 @@ function CoordinatorBody() {
             </div>
             
             <form onSubmit={handleUpdateThesis} className="p-6 space-y-4">
+              {/* TÍTULO */}
               <div>
                 <label className="block text-sm font-medium mb-1">Título</label>
                 <input className="w-full p-2 border rounded" value={editingThesis.title} onChange={e => setEditingThesis({...editingThesis, title: e.target.value})} required />
               </div>
 
+              {/* AUTOR Y EMAIL */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Autor</label>
                   <input className="w-full p-2 border rounded" value={editingThesis.author} onChange={e => setEditingThesis({...editingThesis, author: e.target.value})} required />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Año</label>
-                  <input type="number" className="w-full p-2 border rounded" value={editingThesis.year || ''} onChange={e => setEditingThesis({...editingThesis, year: parseInt(e.target.value)})} required />
+                  <label className="block text-sm font-medium mb-1">Email del Alumno</label>
+                  <input type="email" className="w-full p-2 border rounded" value={editingThesis.email || ''} onChange={e => setEditingThesis({...editingThesis, email: e.target.value})} />
                 </div>
               </div>
 
+              {/* MATRÍCULA Y CARRERA */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Matrícula (ID)</label>
+                  <input className="w-full p-2 border rounded bg-blue-50" value={editingThesis.student_id || ''} onChange={e => setEditingThesis({...editingThesis, student_id: e.target.value})} placeholder="Ej: 123456" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Carrera</label>
+                  <select className="w-full p-2 border rounded bg-white" value={editingThesis.career || ''} onChange={e => setEditingThesis({...editingThesis, career: e.target.value})}>
+                    <option value="">Selecciona...</option>
+                    <option>Ingeniería en Innovación Tecnológica</option>
+                    <option>Biología</option>
+                    <option>Maestría en Ingeniería</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* ASESOR, AÑO Y FECHA DE DEFENSA */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Asesor/Director</label>
+                  <input className="w-full p-2 border rounded" value={editingThesis.advisor || ''} onChange={e => setEditingThesis({...editingThesis, advisor: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Año</label>
+                  <input type="number" className="w-full p-2 border rounded" value={editingThesis.year || ''} onChange={e => setEditingThesis({...editingThesis, year: parseInt(e.target.value)})} required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Fecha de Defensa</label>
+                  <input 
+                    type="date" 
+                    className="w-full p-2 border rounded" 
+                    // Convertimos la fecha de BD a formato YYYY-MM-DD para el input
+                    value={editingThesis.thesis_date ? new Date(editingThesis.thesis_date).toISOString().slice(0, 10) : ''} 
+                    onChange={e => setEditingThesis({...editingThesis, thesis_date: e.target.value})} 
+                  />
+                </div>
+              </div>
+
+              {/* PALABRAS CLAVE */}
               <div>
-                <label className="block text-sm font-medium mb-1">Matrícula (ID)</label>
-                <input className="w-full p-2 border rounded bg-blue-50" value={editingThesis.student_id || ''} onChange={e => setEditingThesis({...editingThesis, student_id: e.target.value})} placeholder="Ej: 123456" />
-                <p className="text-xs text-blue-500 mt-1">Al cambiar la matrícula o autor, los archivos se renombrarán automáticamente.</p>
+                <label className="block text-sm font-medium mb-1">Palabras Clave (Separadas por comas)</label>
+                <input 
+                  className="w-full p-2 border rounded" 
+                  value={Array.isArray(editingThesis.keywords) ? editingThesis.keywords.join(', ') : (editingThesis.keywords || '')} 
+                  onChange={e => setEditingThesis({...editingThesis, keywords: e.target.value})} 
+                  placeholder="Ej: Biología, Software, IA"
+                />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">Carrera</label>
-                <select className="w-full p-2 border rounded bg-white" value={editingThesis.career || ''} onChange={e => setEditingThesis({...editingThesis, career: e.target.value})}>
-                  <option value="">Selecciona...</option>
-                  <option>Ingeniería en Innovación Tecnológica</option>
-                  <option>Biología</option>
-                  <option>Maestría en Ingeniería</option>
-                </select>
-              </div>
-
-              {/* ARCHIVO PDF */}
-              <div className="bg-gray-50 p-4 rounded border border-dashed">
-                <label className="block text-sm font-medium mb-2">Archivo PDF (Tesis)</label>
-                <input type="file" accept=".pdf" className="w-full text-sm" onChange={e => setEditingThesis({...editingThesis, newPdfFile: e.target.files[0]})} />
-                <p className="text-xs text-gray-500 mt-1">Actual: {editingThesis.pdf_filename || 'Ninguno'}</p>
-              </div>
-
-              {/* ARCHIVO APROBACIÓN */}
-              <div className="bg-gray-50 p-4 rounded border border-dashed">
-                <label className="block text-sm font-medium mb-2">Documento de Aprobación</label>
-                <input type="file" accept=".pdf,.jpg,.png" className="w-full text-sm" onChange={e => setEditingThesis({...editingThesis, newApprovalFile: e.target.files[0]})} />
-                <p className="text-xs text-gray-500 mt-1">Actual: {editingThesis.approval_filename || 'Ninguno'}</p>
-                <p className="text-xs text-blue-500 mt-1">Se guardará como: aprobacion[Matricula][Autor]</p>
+              {/* ARCHIVOS */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-4 rounded border border-dashed">
+                  <label className="block text-sm font-medium mb-2">Archivo PDF (Tesis)</label>
+                  <input type="file" accept=".pdf" className="w-full text-sm" onChange={e => setEditingThesis({...editingThesis, newPdfFile: e.target.files[0]})} />
+                  <p className="text-xs text-gray-500 mt-1 truncate">Actual: {editingThesis.pdf_filename || 'Ninguno'}</p>
+                </div>
+                <div className="bg-gray-50 p-4 rounded border border-dashed">
+                  <label className="block text-sm font-medium mb-2">Aprobación</label>
+                  <input type="file" accept=".pdf,.jpg,.png" className="w-full text-sm" onChange={e => setEditingThesis({...editingThesis, newApprovalFile: e.target.files[0]})} />
+                  <p className="text-xs text-gray-500 mt-1 truncate">Actual: {editingThesis.approval_filename || 'Ninguno'}</p>
+                </div>
               </div>
 
               <div>
