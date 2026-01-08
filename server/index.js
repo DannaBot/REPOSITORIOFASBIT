@@ -275,6 +275,51 @@ app.delete('/api/theses/:id', authenticateToken, requireRole('admin'), async (re
   }
 });
 
+// --- NUEVA RUTA: Editar datos de una tesis (Coordinador) ---
+app.put('/api/theses/:id', authenticateToken, requireRole('coordinator'), async (req, res) => {
+  const id = req.params.id;
+  // Recibimos los datos del formulario
+  const { title, author, year, career, abstract, keywords } = req.body || {};
+
+  try {
+    const pool = getPool();
+    
+    // 1. Verificar si existe
+    const [rows] = await pool.execute('SELECT id FROM theses WHERE id = ?', [id]);
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Tesis no encontrada' });
+
+    // 2. Preparar keywords (si viene como array, lo convertimos a texto JSON para la BD)
+    let keywordsString = keywords;
+    if (Array.isArray(keywords)) {
+      keywordsString = JSON.stringify(keywords);
+    }
+
+    // 3. Ejecutar actualización
+    const query = `
+      UPDATE theses 
+      SET title = ?, author = ?, year = ?, career = ?, abstract = ?, keywords = ?
+      WHERE id = ?
+    `;
+
+    await pool.execute(query, [
+      title, 
+      author, 
+      year, 
+      career, 
+      abstract, 
+      keywordsString, 
+      id
+    ]);
+
+    console.log(`[theses:update] Tesis ${id} actualizada correctamente`);
+    res.json({ message: 'Actualización exitosa', id });
+
+  } catch (err) {
+    console.error('[theses:update] error', err);
+    res.status(500).json({ error: 'Error al actualizar la tesis' });
+  }
+});
+
 // Descargar PDF (Requiere Login)
 app.get('/api/theses/:id/pdf', authenticateToken, async (req, res) => {
   const id = req.params.id;
