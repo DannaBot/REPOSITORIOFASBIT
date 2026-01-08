@@ -3,7 +3,9 @@ import { Helmet } from 'react-helmet';
 import { logout, getUser, getToken } from '../lib/auth';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../ui/button';
-import { Pencil, X, Save, Eye, EyeOff } from 'lucide-react'; // Iconos nuevos
+import { Pencil, X, Save, Eye, EyeOff, FileText } from 'lucide-react';
+// 1. IMPORTAMOS EL HOOK DE TOAST
+import { useToast } from '../ui/use-toast';
 
 const Coordinator = () => {
   const navigate = useNavigate();
@@ -11,17 +13,13 @@ const Coordinator = () => {
 
   return (
     <>
-      <Helmet>
-        <title>Panel de Coordinador - FASBIT</title>
-      </Helmet>
-
+      <Helmet><title>Panel de Coordinador - FASBIT</title></Helmet>
       <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white py-12">
         <div className="max-w-7xl mx-auto px-4">
           <h1 className="text-3xl font-bold">Panel de Coordinador</h1>
           <p className="text-indigo-100">Bienvenido{user?.email ? `, ${user.email}` : ''}</p>
         </div>
       </div>
-
       <div className="max-w-7xl mx-auto px-4 py-8">
         <CoordinatorBody />
       </div>
@@ -30,30 +28,24 @@ const Coordinator = () => {
 };
 
 function CoordinatorBody() {
+  // 2. ACTIVAMOS EL TOAST
+  const { toast } = useToast();
+  
   const [stats, setStats] = React.useState({ theses: 0, coordinators: 0 });
   const [theses, setTheses] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
-  
-  // ESTADO NUEVO: Para controlar la tesis que se está editando
   const [editingThesis, setEditingThesis] = React.useState(null);
-  
   const navigate = useNavigate();
 
-  React.useEffect(() => {
-    loadData();
-  }, []);
+  React.useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     try {
       const token = getToken();
-      // Cargar estadísticas
       const resStats = await fetch('http://localhost:4000/api/stats', { headers: { Authorization: `Bearer ${token}` } });
       if (resStats.ok) setStats(await resStats.json());
-
-      // Cargar tesis
       const resTheses = await fetch('http://localhost:4000/api/theses', { headers: { Authorization: `Bearer ${token}` } });
       if (resTheses.ok) setTheses(await resTheses.json());
-      
     } catch (e) {
       console.error('Error loading data', e);
     } finally {
@@ -68,44 +60,75 @@ function CoordinatorBody() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({ hidden: currentHidden ? 0 : 1 })
       });
-      if (!res.ok) throw new Error('Error updating visibility');
+      if (!res.ok) throw new Error('Error');
       const updated = await res.json();
       setTheses(prev => prev.map(t => t.id === id ? { ...t, hidden: updated.hidden } : t));
-    } catch (e) {
-      console.error('toggleHidden error', e);
-    }
+      
+      // Toast discreto para visibilidad
+      toast({
+        description: currentHidden ? "Tesis ahora visible" : "Tesis ocultada",
+        className: "bg-gray-800 text-white border-none",
+      });
+
+    } catch (e) { console.error(e); }
   };
 
-  // NUEVA FUNCIÓN: Guardar los cambios editados
   const handleUpdateThesis = async (e) => {
     e.preventDefault();
     if (!editingThesis) return;
-
+  
     try {
+      const formData = new FormData();
+      formData.append('title', editingThesis.title);
+      formData.append('author', editingThesis.author);
+      formData.append('student_id', editingThesis.student_id || '');
+      formData.append('year', editingThesis.year);
+      formData.append('career', editingThesis.career || '');
+      formData.append('abstract', editingThesis.abstract || '');
+      
+      const keys = Array.isArray(editingThesis.keywords) ? JSON.stringify(editingThesis.keywords) : (editingThesis.keywords || '[]');
+      formData.append('keywords', keys);
+      
+      if (editingThesis.newPdfFile) {
+        formData.append('pdfFile', editingThesis.newPdfFile);
+      }
+      if (editingThesis.newApprovalFile) {
+        formData.append('approvalFile', editingThesis.newApprovalFile);
+      }
+  
       const res = await fetch(`http://localhost:4000/api/theses/${editingThesis.id}`, {
-        method: 'PUT', // Usamos PUT para actualizar
-        headers: { 
-          'Content-Type': 'application/json', 
-          Authorization: `Bearer ${getToken()}` 
-        },
-        body: JSON.stringify(editingThesis)
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: formData
+      });
+  
+      if (!res.ok) throw new Error('Falló la actualización');
+      
+      await loadData(); 
+      setEditingThesis(null);
+      
+      // 3. TOAST VERDE DE ÉXITO
+      toast({
+        title: "¡Actualización exitosa!",
+        description: "Los datos y archivos se han guardado correctamente.",
+        className: "bg-green-600 text-white border-none", // Estilo verde bonito
       });
 
-      if (!res.ok) throw new Error('Falló la actualización');
-
-      // Actualizar la lista local
-      setTheses(prev => prev.map(t => t.id === editingThesis.id ? editingThesis : t));
-      setEditingThesis(null); // Cerrar modal
-      alert("Tesis actualizada correctamente");
     } catch (error) {
       console.error("Error al actualizar:", error);
-      alert("Error al guardar los cambios");
+      
+      // 4. TOAST ROJO DE ERROR
+      toast({
+        title: "Error",
+        description: "No se pudieron guardar los cambios.",
+        variant: "destructive", // Estilo rojo de alerta
+      });
     }
   };
 
   return (
     <>
-      <p>Interfaz de coordinación. Estadísticas rápidas:</p>
+      <p>Estadísticas rápidas:</p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
         <div className="bg-white rounded p-4 shadow">
           <div className="text-sm text-gray-500">Tesis totales</div>
@@ -125,11 +148,7 @@ function CoordinatorBody() {
 
       <div className="mt-8">
         <h2 className="text-lg font-semibold mb-4">Gestión de Tesis</h2>
-        {loading ? (
-          <div>Cargando...</div>
-        ) : theses.length === 0 ? (
-          <div className="text-gray-500">No hay tesis disponibles</div>
-        ) : (
+        {loading ? <div>Cargando...</div> : theses.length === 0 ? <div className="text-gray-500">No hay tesis</div> : (
           <div className="grid grid-cols-1 gap-4">
             {theses.map(t => (
               <div key={t.id} className="p-4 bg-white rounded border border-gray-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -138,32 +157,20 @@ function CoordinatorBody() {
                   <div className="text-sm text-gray-600">
                     <span className="font-semibold">{t.author}</span> · {t.year} · {t.career}
                   </div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    PDF: {t.pdf_filename} <br/>
+                    Aprobación: {t.approval_filename || 'No subido'}
+                  </div>
                 </div>
                 
                 <div className="flex items-center gap-3">
-                  {/* Botón de Visibilidad */}
-                  <button 
-                    onClick={() => toggleHidden(t.id, !!t.hidden)}
-                    className={`p-2 rounded-full transition-colors ${t.hidden ? 'bg-gray-100 text-gray-400' : 'bg-green-100 text-green-700'}`}
-                    title={t.hidden ? "Tesis Oculta" : "Tesis Visible"}
-                  >
+                  <button onClick={() => toggleHidden(t.id, !!t.hidden)} className={`p-2 rounded-full ${t.hidden ? 'bg-gray-100 text-gray-400' : 'bg-green-100 text-green-700'}`}>
                     {t.hidden ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
-
-                  {/* NUEVO: Botón de Editar */}
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => setEditingThesis(t)} 
-                    className="flex items-center gap-2"
-                  >
+                  <Button size="sm" variant="outline" onClick={() => setEditingThesis(t)} className="flex items-center gap-2">
                     <Pencil size={16} /> Editar
                   </Button>
-
-                  {/* Botón Ver PDF */}
-                  <Button size="sm" onClick={() => window.location.href = `/thesis/${t.id}`}>
-                    Ver PDF
-                  </Button>
+                  <Button size="sm" onClick={() => window.location.href = `/thesis/${t.id}`}>Ver</Button>
                 </div>
               </div>
             ))}
@@ -171,79 +178,70 @@ function CoordinatorBody() {
         )}
       </div>
 
-      {/* MODAL DE EDICIÓN */}
       {editingThesis && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center p-6 border-b sticky top-0 bg-white">
-              <h3 className="text-xl font-bold text-gray-800">Editar Tesis</h3>
-              <button onClick={() => setEditingThesis(null)} className="text-gray-400 hover:text-gray-600">
-                <X size={24} />
-              </button>
+              <h3 className="text-xl font-bold">Editar Tesis</h3>
+              <button onClick={() => setEditingThesis(null)}><X size={24} /></button>
             </div>
             
             <form onSubmit={handleUpdateThesis} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Título</label>
-                <input 
-                  type="text" 
-                  className="w-full p-2 border rounded focus:ring-2 focus:ring-indigo-500 outline-none"
-                  value={editingThesis.title}
-                  onChange={e => setEditingThesis({...editingThesis, title: e.target.value})}
-                  required
-                />
+                <label className="block text-sm font-medium mb-1">Título</label>
+                <input className="w-full p-2 border rounded" value={editingThesis.title} onChange={e => setEditingThesis({...editingThesis, title: e.target.value})} required />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Autor</label>
-                  <input 
-                    type="text" 
-                    className="w-full p-2 border rounded focus:ring-2 focus:ring-indigo-500 outline-none"
-                    value={editingThesis.author}
-                    onChange={e => setEditingThesis({...editingThesis, author: e.target.value})}
-                    required
-                  />
+                  <label className="block text-sm font-medium mb-1">Autor</label>
+                  <input className="w-full p-2 border rounded" value={editingThesis.author} onChange={e => setEditingThesis({...editingThesis, author: e.target.value})} required />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Año</label>
-                  <input 
-                    type="number" 
-                    className="w-full p-2 border rounded focus:ring-2 focus:ring-indigo-500 outline-none"
-                    value={editingThesis.year || ''}
-                    onChange={e => setEditingThesis({...editingThesis, year: parseInt(e.target.value)})}
-                    required
-                  />
+                  <label className="block text-sm font-medium mb-1">Año</label>
+                  <input type="number" className="w-full p-2 border rounded" value={editingThesis.year || ''} onChange={e => setEditingThesis({...editingThesis, year: parseInt(e.target.value)})} required />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Carrera</label>
-                <input 
-                  type="text" 
-                  className="w-full p-2 border rounded focus:ring-2 focus:ring-indigo-500 outline-none"
-                  value={editingThesis.career || ''}
-                  onChange={e => setEditingThesis({...editingThesis, career: e.target.value})}
-                />
+                <label className="block text-sm font-medium mb-1">Matrícula (ID)</label>
+                <input className="w-full p-2 border rounded bg-blue-50" value={editingThesis.student_id || ''} onChange={e => setEditingThesis({...editingThesis, student_id: e.target.value})} placeholder="Ej: 123456" />
+                <p className="text-xs text-blue-500 mt-1">Al cambiar la matrícula o autor, los archivos se renombrarán automáticamente.</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Resumen (Abstract)</label>
-                <textarea 
-                  rows={5}
-                  className="w-full p-2 border rounded focus:ring-2 focus:ring-indigo-500 outline-none"
-                  value={editingThesis.abstract || ''}
-                  onChange={e => setEditingThesis({...editingThesis, abstract: e.target.value})}
-                />
+                <label className="block text-sm font-medium mb-1">Carrera</label>
+                <select className="w-full p-2 border rounded bg-white" value={editingThesis.career || ''} onChange={e => setEditingThesis({...editingThesis, career: e.target.value})}>
+                  <option value="">Selecciona...</option>
+                  <option>Ingeniería en Innovación Tecnológica</option>
+                  <option>Biología</option>
+                  <option>Maestría en Ingeniería</option>
+                </select>
+              </div>
+
+              {/* ARCHIVO PDF */}
+              <div className="bg-gray-50 p-4 rounded border border-dashed">
+                <label className="block text-sm font-medium mb-2">Archivo PDF (Tesis)</label>
+                <input type="file" accept=".pdf" className="w-full text-sm" onChange={e => setEditingThesis({...editingThesis, newPdfFile: e.target.files[0]})} />
+                <p className="text-xs text-gray-500 mt-1">Actual: {editingThesis.pdf_filename || 'Ninguno'}</p>
+              </div>
+
+              {/* ARCHIVO APROBACIÓN */}
+              <div className="bg-gray-50 p-4 rounded border border-dashed">
+                <label className="block text-sm font-medium mb-2">Documento de Aprobación</label>
+                <input type="file" accept=".pdf,.jpg,.png" className="w-full text-sm" onChange={e => setEditingThesis({...editingThesis, newApprovalFile: e.target.files[0]})} />
+                <p className="text-xs text-gray-500 mt-1">Actual: {editingThesis.approval_filename || 'Ninguno'}</p>
+                <p className="text-xs text-blue-500 mt-1">Se guardará como: aprobacion[Matricula][Autor]</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Resumen</label>
+                <textarea rows={4} className="w-full p-2 border rounded" value={editingThesis.abstract || ''} onChange={e => setEditingThesis({...editingThesis, abstract: e.target.value})} />
               </div>
 
               <div className="pt-4 flex justify-end gap-3 border-t mt-6">
-                <Button type="button" variant="ghost" onClick={() => setEditingThesis(null)}>
-                  Cancelar
-                </Button>
-                <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white flex gap-2">
-                  <Save size={18} /> Guardar Cambios
-                </Button>
+                <Button type="button" variant="ghost" onClick={() => setEditingThesis(null)}>Cancelar</Button>
+                <Button type="submit" className="bg-indigo-600 text-white flex gap-2"><Save size={18} /> Guardar Cambios</Button>
               </div>
             </form>
           </div>

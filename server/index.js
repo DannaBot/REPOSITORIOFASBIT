@@ -24,6 +24,7 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
+    // Nombre temporal
     const unique = Date.now() + '-' + Math.random().toString(36).slice(2, 9);
     const safe = file.originalname.replace(/[^a-z0-9.\-\_]/gi, '_');
     cb(null, `${unique}-${safe}`);
@@ -32,8 +33,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 
-// --- MIDDLEWARES DE SEGURIDAD ---
-
+// --- MIDDLEWARES ---
 function authenticateToken(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth) return res.status(401).json({ error: 'No token provided' });
@@ -54,75 +54,34 @@ function requireRole(role) {
   };
 }
 
-function requireRoles(...roles) {
-  return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    next();
-  };
-}
-// --- LOGIN CON DIAGNÓSTICO ---
+// --- RUTAS DE LOGIN Y USUARIOS ---
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body || {}; 
-  
-  // LOGS PARA VER QUÉ RECIBE EL SERVIDOR
-  console.log('------------------------------------------------');
-  console.log('🔍 INTENTO DE LOGIN:');
-  console.log('   Usuario recibido:', email); 
-  console.log('   Contraseña recibida:', password); 
-
-  if (!email || !password) {
-    console.log('❌ Faltan datos.');
-    return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
-  }
-  
+  if (!email || !password) return res.status(400).json({ error: 'Datos requeridos' });
   try {
     const pool = getPool();
-    // Buscamos si es un correo (admin) O una matrícula (alumno)
     const [rows] = await pool.execute('SELECT id, email, student_id, password_hash, role FROM users WHERE email = ? OR student_id = ?', [email, email]);
     const user = rows && rows[0];
-    
-    if (!user) {
-      console.log('❌ Usuario NO encontrado en la Base de Datos.');
-      return res.status(401).json({ error: 'Usuario no encontrado' });
+    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
     }
-
-    console.log('✅ Usuario encontrado en BD. Rol:', user.role);
-    
-    // Verificamos la contraseña
-    const ok = bcrypt.compareSync(password, user.password_hash);
-    if (!ok) {
-      console.log('❌ Contraseña INCORRECTA. El hash no coincide.');
-      return res.status(401).json({ error: 'Contraseña incorrecta' });
-    }
-    
-    console.log('✅ ¡Contraseña correcta! Generando token...');
     const token = jwt.sign({ id: user.id, email: user.email, student_id: user.student_id, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
-    
     res.json({ token, user: { id: user.id, email: user.email, role: user.role, student_id: user.student_id } });
   } catch (err) {
-    console.error('❌ Error de servidor:', err);
     res.status(500).json({ error: 'Login error' });
   }
 });
 
-// Crear usuarios (Solo Admin - para crear coordinadores)
 app.post('/api/users', authenticateToken, requireRole('admin'), async (req, res) => {
   const { email, password, role } = req.body || {};
-  console.log('[users:create] admin', req.user && req.user.email, 'creating', email, 'role', role);
-  if (!email || !password || !role) return res.status(400).json({ error: 'email, password y role son requeridos' });
-  
-  if (role !== 'coordinator') return res.status(400).json({ error: 'Solo se permite crear usuarios con role "coordinator" desde esta ruta' });
-  
+  if (!email || !password || role !== 'coordinator') return res.status(400).json({ error: 'Datos inválidos' });
   try {
     const hash = bcrypt.hashSync(password, 10);
-    const createdAt = new Date();
     const pool = getPool();
-    const [result] = await pool.execute('INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, ?, ?)', [email, hash, role, createdAt]);
-    console.log('[users:create] inserted id', result.insertId);
+    const [result] = await pool.execute('INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, ?, ?)', [email, hash, role, new Date()]);
     res.json({ id: result.insertId, email, role });
   } catch (err) {
-    console.error('[users:create] error', err);
-    res.status(500).json({ error: err.message || 'Error creating user' });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -131,43 +90,39 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
     const pool = getPool();
     const [r1] = await pool.execute('SELECT COUNT(*) as count FROM theses');
     const [r2] = await pool.execute("SELECT COUNT(*) as count FROM users WHERE role = 'coordinator'");
-    res.json({ theses: (r1 && r1[0] && r1[0].count) || 0, coordinators: (r2 && r2[0] && r2[0].count) || 0 });
+    res.json({ theses: r1[0].count, coordinators: r2[0].count });
   } catch (err) {
-    console.error('[stats] error', err);
     res.status(500).json({ error: 'Stats error' });
   }
 });
 
-// Listado de Tesis (Público)
+// --- RUTAS DE TESIS ---
+
+// 1. LISTAR
 app.get('/api/theses', (req, res) => {
   const qParam = req.query.q;
-  let sql = 'SELECT id, title, author, abstract, career, year, thesis_date, keywords, status, downloads, pdf_filename, created_at, hidden FROM theses';
+  let sql = 'SELECT id, title, author, abstract, career, year, thesis_date, keywords, status, downloads, pdf_filename, approval_filename, student_id, created_at, hidden FROM theses';
   const params = [];
-
   let showAll = false;
+  
   const auth = req.headers.authorization;
   if (auth && auth.startsWith('Bearer ')) {
     try {
       const payload = jwt.verify(auth.split(' ')[1], JWT_SECRET);
       if (payload && (payload.role === 'admin' || payload.role === 'coordinator')) showAll = true;
-    } catch (e) {
-      // ignore
-    }
+    } catch (e) {}
   }
 
   const conditions = [];
   if (qParam) {
     const like = `%${qParam.toLowerCase()}%`;
-    conditions.push('(lower(title) LIKE ? OR lower(author) LIKE ? OR lower(abstract) LIKE ? OR lower(`fulltext`) LIKE ?)');
-    params.push(like, like, like, like);
+    conditions.push('(lower(title) LIKE ? OR lower(author) LIKE ?)');
+    params.push(like, like);
   }
 
   if (!showAll) {
-    // Solo mostrar aprobadas y no ocultas a visitantes
-    conditions.push('status = ?');
-    params.push('approved');
-    conditions.push('hidden = ?');
-    params.push(0);
+    conditions.push('status = ?', 'hidden = ?');
+    params.push('approved', 0);
   }
 
   if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ');
@@ -180,256 +135,237 @@ app.get('/api/theses', (req, res) => {
       const parsed = rows.map(r => ({ ...r, keywords: r.keywords ? JSON.parse(r.keywords) : [] }));
       res.json(parsed);
     } catch (err) {
-      console.error('[theses:list] error', err);
       res.status(500).json({ error: 'List error' });
     }
   })();
 });
 
-// Detalle de Tesis (Público, pero con restricciones si está oculta)
-app.get('/api/theses/:id', (req, res) => {
-  (async () => {
-    try {
-      const id = req.params.id;
-      
-      // Intentamos leer el usuario (si existe), pero NO bloqueamos si no hay token
-      let payload = null;
-      const authHeader = req.headers.authorization;
-      
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        try {
-          payload = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
-        } catch (e) {
-          // Si el token está mal, tratamos al usuario como visitante
+// 2. DETALLE
+app.get('/api/theses/:id', async (req, res) => {
+  try {
+    const pool = getPool();
+    const [rows] = await pool.execute('SELECT * FROM theses WHERE id = ?', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+    const row = rows[0];
+    row.keywords = row.keywords ? JSON.parse(row.keywords) : [];
+    res.json(row);
+  } catch (err) {
+    res.status(500).json({ error: 'Error fetching thesis' });
+  }
+});
+
+// 3. EDITAR TESIS (Con Renombrado de Tesis y Aprobación)
+app.put('/api/theses/:id', authenticateToken, requireRole('coordinator'), upload.fields([{ name: 'pdfFile' }, { name: 'approvalFile' }]), async (req, res) => {
+  const id = req.params.id;
+  const { title, author, student_id, year, career, abstract, keywords } = req.body || {};
+  
+  // Archivos nuevos (si los hay)
+  const newPdf = req.files && req.files['pdfFile'] ? req.files['pdfFile'][0] : null;
+  const newApproval = req.files && req.files['approvalFile'] ? req.files['approvalFile'][0] : null;
+
+  try {
+    const pool = getPool();
+    const [rows] = await pool.execute('SELECT * FROM theses WHERE id = ?', [id]);
+    const currentThesis = rows && rows[0];
+    if (!currentThesis) return res.status(404).json({ error: 'Tesis no encontrada' });
+
+    // --- LÓGICA DE RENOMBRADO ---
+    const matriculaFinal = student_id || currentThesis.student_id || 'SIN_MATRICULA';
+    const autorFinal = author || currentThesis.author || 'SIN_AUTOR';
+    
+    const safeMatricula = matriculaFinal.replace(/[^a-z0-9]/gi, '');
+    const safeAutor = autorFinal.replace(/[^a-z0-9]/gi, '_');
+
+    // Nombres objetivo (sin extensión aún)
+    const basePdfName = `tesis${safeMatricula}${safeAutor}`;
+    const baseAppName = `aprobacion${safeMatricula}${safeAutor}`;
+
+    let finalPdfFilename = currentThesis.pdf_filename;
+    let finalAppFilename = currentThesis.approval_filename;
+
+    // A) MANEJO DEL PDF
+    if (newPdf) {
+      // Borrar viejo
+      if (currentThesis.pdf_filename) {
+        const oldPath = path.join(uploadsDir, currentThesis.pdf_filename);
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      }
+      // Renombrar nuevo
+      const ext = path.extname(newPdf.originalname) || '.pdf';
+      const newName = basePdfName + ext;
+      fs.renameSync(newPdf.path, path.join(uploadsDir, newName));
+      finalPdfFilename = newName;
+    } else if (finalPdfFilename) {
+      // Renombrar existente si cambiaron datos
+      const ext = path.extname(finalPdfFilename);
+      const newName = basePdfName + ext;
+      if (finalPdfFilename !== newName) {
+        const oldPath = path.join(uploadsDir, finalPdfFilename);
+        const newPath = path.join(uploadsDir, newName);
+        if (fs.existsSync(oldPath)) {
+          fs.renameSync(oldPath, newPath);
+          finalPdfFilename = newName;
         }
       }
-
-      const pool = getPool();
-      const [rows] = await pool.execute('SELECT *, thesis_date FROM theses WHERE id = ?', [id]);
-      const row = rows && rows[0];
-      
-      if (!row) return res.status(404).json({ error: 'Not found' });
-
-      // Lógica de permisos para ver detalles de tesis ocultas/no aprobadas
-      const isRestricted = (row.hidden === 1 || row.status !== 'approved');
-      const isAdminOrCoord = payload && (payload.role === 'admin' || payload.role === 'coordinator');
-      // El autor también puede ver su propia tesis aunque esté oculta
-      const isAuthor = payload && payload.role === 'student' && payload.student_id === row.student_id;
-
-      if (isRestricted && !isAdminOrCoord && !isAuthor) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-
-      row.keywords = row.keywords ? JSON.parse(row.keywords) : [];
-      res.json(row);
-    } catch (err) {
-      console.error('[theses:get] error', err);
-      res.status(500).json({ error: 'Error fetching thesis' });
-    }
-  })();
-});
-
-// Actualizar estatus (Coordinador/Admin)
-app.post('/api/theses/:id/status', authenticateToken, requireRole('coordinator'), async (req, res) => {
-  const id = req.params.id;
-  const { status } = req.body || {};
-  if (!status) return res.status(400).json({ error: 'Status requerido' });
-  try {
-    const pool = getPool();
-    const [result] = await pool.execute('UPDATE theses SET status = ? WHERE id = ?', [status, id]);
-    res.json({ id, status });
-  } catch (err) {
-    console.error('[theses:status] error', err);
-    res.status(500).json({ error: 'Error updating status' });
-  }
-});
-
-// Borrar tesis (Admin)
-app.delete('/api/theses/:id', authenticateToken, requireRole('admin'), async (req, res) => {
-  const id = req.params.id;
-  try {
-    const pool = getPool();
-    const [rows] = await pool.execute('SELECT pdf_filename, approval_filename FROM theses WHERE id = ?', [id]);
-    const row = rows && rows[0];
-    if (!row) return res.status(404).json({ error: 'Not found' });
-
-    // Borrar archivos físicos
-    try {
-      if (row.pdf_filename) {
-        const pdfPath = path.join(uploadsDir, row.pdf_filename);
-        if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
-      }
-      if (row.approval_filename) {
-        const apprPath = path.join(uploadsDir, row.approval_filename);
-        if (fs.existsSync(apprPath)) fs.unlinkSync(apprPath);
-      }
-    } catch (e) {
-      console.warn('[theses:delete] warning removing files', e);
     }
 
-    const [result] = await pool.execute('DELETE FROM theses WHERE id = ?', [id]);
-    res.json({ id });
-  } catch (err) {
-    console.error('[theses:delete] error', err);
-    res.status(500).json({ error: 'Error deleting thesis' });
-  }
-});
+    // B) MANEJO DE APROBACIÓN
+    if (newApproval) {
+      // Borrar viejo
+      if (currentThesis.approval_filename) {
+        const oldPath = path.join(uploadsDir, currentThesis.approval_filename);
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      }
+      // Renombrar nuevo
+      const ext = path.extname(newApproval.originalname); // ej: .pdf o .jpg
+      const newName = baseAppName + ext;
+      fs.renameSync(newApproval.path, path.join(uploadsDir, newName));
+      finalAppFilename = newName;
+    } else if (finalAppFilename) {
+      // Renombrar existente
+      const ext = path.extname(finalAppFilename);
+      const newName = baseAppName + ext;
+      if (finalAppFilename !== newName) {
+        const oldPath = path.join(uploadsDir, finalAppFilename);
+        const newPath = path.join(uploadsDir, newName);
+        if (fs.existsSync(oldPath)) {
+          fs.renameSync(oldPath, newPath);
+          finalAppFilename = newName;
+        }
+      }
+    }
 
-// --- NUEVA RUTA: Editar datos de una tesis (Coordinador) ---
-app.put('/api/theses/:id', authenticateToken, requireRole('coordinator'), async (req, res) => {
-  const id = req.params.id;
-  // Recibimos los datos del formulario
-  const { title, author, year, career, abstract, keywords } = req.body || {};
-
-  try {
-    const pool = getPool();
-    
-    // 1. Verificar si existe
-    const [rows] = await pool.execute('SELECT id FROM theses WHERE id = ?', [id]);
-    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Tesis no encontrada' });
-
-    // 2. Preparar keywords (si viene como array, lo convertimos a texto JSON para la BD)
+    // Convertir keywords
     let keywordsString = keywords;
-    if (Array.isArray(keywords)) {
-      keywordsString = JSON.stringify(keywords);
-    }
+    if (Array.isArray(keywords)) keywordsString = JSON.stringify(keywords);
 
-    // 3. Ejecutar actualización
+    // Actualizar BD
     const query = `
       UPDATE theses 
-      SET title = ?, author = ?, year = ?, career = ?, abstract = ?, keywords = ?
+      SET title = ?, author = ?, student_id = ?, year = ?, career = ?, abstract = ?, keywords = ?, pdf_filename = ?, approval_filename = ?
       WHERE id = ?
     `;
 
     await pool.execute(query, [
-      title, 
-      author, 
-      year, 
-      career, 
-      abstract, 
-      keywordsString, 
+      title || currentThesis.title, 
+      author || currentThesis.author, 
+      student_id || currentThesis.student_id,
+      year || currentThesis.year, 
+      career || currentThesis.career, 
+      abstract || currentThesis.abstract, 
+      keywordsString || currentThesis.keywords, 
+      finalPdfFilename,
+      finalAppFilename,
       id
     ]);
 
-    console.log(`[theses:update] Tesis ${id} actualizada correctamente`);
     res.json({ message: 'Actualización exitosa', id });
 
   } catch (err) {
-    console.error('[theses:update] error', err);
-    res.status(500).json({ error: 'Error al actualizar la tesis' });
+    console.error('[update] error', err);
+    res.status(500).json({ error: 'Error al actualizar' });
   }
 });
 
-// Descargar PDF (Requiere Login)
-app.get('/api/theses/:id/pdf', authenticateToken, async (req, res) => {
-  const id = req.params.id;
-  try {
-    const pool = getPool();
-    const [rows] = await pool.execute('SELECT pdf_filename, hidden, status, student_id FROM theses WHERE id = ?', [id]);
-    const row = rows && rows[0];
-    if (!row || !row.pdf_filename) return res.status(404).json({ error: 'PDF not found' });
-
-    // Reglas de acceso al archivo:
-    // 1. Si está pública (approved y no hidden): Acceso permitido a cualquier usuario logueado (alumno, admin, coord).
-    // 2. Si está restringida: Solo Admin, Coord o el Autor.
-    const isRestricted = (row.hidden === 1 || row.status !== 'approved');
-    const isAdminOrCoord = req.user.role === 'admin' || req.user.role === 'coordinator';
-    const isAuthor = req.user.role === 'student' && req.user.student_id === row.student_id;
-
-    if (isRestricted && !isAdminOrCoord && !isAuthor) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    const file = path.join(uploadsDir, row.pdf_filename);
-    if (!fs.existsSync(file)) return res.status(404).json({ error: 'File missing' });
-    
-    // Incrementar contador de descargas
-    try { await pool.execute('UPDATE theses SET downloads = downloads + 1 WHERE id = ?', [id]); } catch (e) {}
-    
-    res.sendFile(file);
-  } catch (err) {
-    console.error('[theses:pdf] error', err);
-    res.status(500).json({ error: 'Error retrieving PDF' });
-  }
-});
-
-// Cambiar visibilidad (Coordinador)
-app.post('/api/theses/:id/visibility', authenticateToken, requireRole('coordinator'), async (req, res) => {
-  const id = req.params.id;
-  const hidden = req.body && (req.body.hidden === 1 || req.body.hidden === '1' || req.body.hidden === true || req.body.hidden === 'true') ? 1 : 0;
-  try {
-    const pool = getPool();
-    const [result] = await pool.execute('UPDATE theses SET hidden = ? WHERE id = ?', [hidden, id]);
-    res.json({ id, hidden });
-  } catch (err) {
-    console.error('[theses:visibility] error', err);
-    res.status(500).json({ error: 'Error updating visibility' });
-  }
-});
-
-// --- SUBIDA DE TESIS (Sin crear usuario) ---
+// 4. SUBIR TESIS (POST)
 app.post('/api/upload', authenticateToken, requireRole('coordinator'), upload.fields([{ name: 'pdfFile' }, { name: 'approvalFile' }]), async (req, res) => {
   try {
     const body = req.body;
     const pdfFile = req.files['pdfFile']?.[0];
     const approvalFile = req.files['approvalFile']?.[0];
-
+    
     if (!pdfFile) return res.status(400).json({ error: 'PDF requerido' });
 
-    // Extraer texto para búsquedas (opcional)
-    const dataBuffer = fs.readFileSync(pdfFile.path);
-    const pdfData = await pdf(dataBuffer).catch(() => ({ text: '' }));
-    const fulltext = (pdfData && pdfData.text) ? pdfData.text : '';
-
-    const keywords = body.keywords ? JSON.stringify(body.keywords.split(',').map(k => k.trim())) : JSON.stringify([]);
+    const safeMatricula = (body.studentId || 'SIN_MATRICULA').replace(/[^a-z0-9]/gi, '');
+    const safeAutor = (body.studentName || 'SIN_AUTOR').replace(/[^a-z0-9]/gi, '_');
     
-    // Publicación automática
-    const status = 'approved'; 
-    const hidden = (body.hidden === '1' || body.hidden === 'true') ? 1 : 0;
-    const createdAt = new Date();
+    // Renombrar PDF
+    const pdfName = `tesis${safeMatricula}${safeAutor}.pdf`;
+    fs.renameSync(pdfFile.path, path.join(uploadsDir, pdfName));
+
+    // Renombrar Aprobación (si existe)
+    let approvalName = null;
+    if (approvalFile) {
+      const ext = path.extname(approvalFile.originalname);
+      approvalName = `aprobacion${safeMatricula}${safeAutor}${ext}`;
+      fs.renameSync(approvalFile.path, path.join(uploadsDir, approvalName));
+    }
+
+    const keywords = body.keywords ? JSON.stringify(body.keywords.split(',').map(k => k.trim())) : '[]';
     const pool = getPool();
 
-    // Insertar la tesis vinculando la matrícula (student_id)
-    // No tocamos la tabla de usuarios. Los usuarios se deben crear aparte (seed o panel admin).
     const [result] = await pool.execute('INSERT INTO theses (title, author, student_id, email, abstract, advisor, career, year, thesis_date, keywords, status, hidden, downloads, pdf_filename, approval_filename, `fulltext`, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-      body.title || '',
-      body.studentName || '',
-      body.studentId || '', // Matrícula del alumno
-      body.email || '',
-      body.abstract || '',
-      body.advisor || '',
-      body.career || '',
+      body.title || '', body.studentName || '', body.studentId || '', body.email || '',
+      body.abstract || '', body.advisor || '', body.career || '',
       parseInt(body.year) || new Date().getFullYear(),
-      body.thesis_date && body.thesis_date.length ? body.thesis_date : null,
-      keywords,
-      status,
-      hidden,
-      0,
-      pdfFile.filename,
-      approvalFile ? approvalFile.filename : null,
-      fulltext,
-      createdAt
+      body.thesis_date || null, keywords, 'approved', 0, 0,
+      pdfName, approvalName, '', new Date()
     ]);
 
-    const id = result.insertId;
-    console.log('[upload] inserted thesis id', id);
-    
-    const [rows] = await pool.execute('SELECT id, title, author, abstract, career, year, keywords, status, downloads, pdf_filename, created_at FROM theses WHERE id = ?', [id]);
-    const row = rows && rows[0];
-    if (row) row.keywords = row.keywords ? JSON.parse(row.keywords) : [];
-    res.json(row);
+    res.json({ id: result.insertId });
   } catch (error) {
     console.error('[upload] error', error);
     res.status(500).json({ error: 'Upload failed' });
   }
 });
 
+// 5. Visibilidad
+app.post('/api/theses/:id/visibility', authenticateToken, requireRole('coordinator'), async (req, res) => {
+  const id = req.params.id;
+  const hidden = req.body.hidden ? 1 : 0;
+  try {
+    const pool = getPool();
+    await pool.execute('UPDATE theses SET hidden = ? WHERE id = ?', [hidden, id]);
+    res.json({ id, hidden });
+  } catch (err) {
+    res.status(500).json({ error: 'Error' });
+  }
+});
+
+// 6. Descargar PDF
+app.get('/api/theses/:id/pdf', authenticateToken, async (req, res) => {
+  const id = req.params.id;
+  try {
+    const pool = getPool();
+    const [rows] = await pool.execute('SELECT pdf_filename FROM theses WHERE id = ?', [id]);
+    if (!rows[0] || !rows[0].pdf_filename) return res.status(404).json({ error: 'Not found' });
+    const file = path.join(uploadsDir, rows[0].pdf_filename);
+    if (!fs.existsSync(file)) return res.status(404).json({ error: 'Missing' });
+    await pool.execute('UPDATE theses SET downloads = downloads + 1 WHERE id = ?', [id]);
+    res.sendFile(file);
+  } catch (err) {
+    res.status(500).json({ error: 'Error' });
+  }
+});
+
+// 7. Borrar
+app.delete('/api/theses/:id', authenticateToken, requireRole('admin'), async (req, res) => {
+  const id = req.params.id;
+  try {
+    const pool = getPool();
+    const [rows] = await pool.execute('SELECT pdf_filename, approval_filename FROM theses WHERE id = ?', [id]);
+    const row = rows[0];
+    if (row) {
+      if (row.pdf_filename) {
+        const p = path.join(uploadsDir, row.pdf_filename);
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      }
+      if (row.approval_filename) {
+        const p = path.join(uploadsDir, row.approval_filename);
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      }
+    }
+    await pool.execute('DELETE FROM theses WHERE id = ?', [id]);
+    res.json({ id });
+  } catch (err) {
+    res.status(500).json({ error: 'Error deleting' });
+  }
+});
+
 init().then(() => {
-  console.log('[server] DB initialized, starting HTTP server');
-  app.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
-  });
+  console.log('[server] DB initialized');
+  app.listen(PORT, () => console.log(`Server on port ${PORT}`));
 }).catch(err => {
-  console.error('[server] Failed to init DB, aborting start', err);
+  console.error('[server] DB Fail', err);
   process.exit(1);
 });

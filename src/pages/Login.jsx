@@ -23,7 +23,7 @@ const Login = () => {
     }
     login(email, password).then(user => {
       toast({ title: 'Sesión iniciada', description: `Has entrado como ${user.role}` });
-      navigate(user.role === 'admin' ? '/admin' : '/coordinator');
+      navigate(user.role === 'admin' ? '/admin' : '/coordinador');
     }).catch(err => {
       toast({ title: 'Error', description: err.message || 'Credenciales inválidas', variant: 'destructive' });
     });

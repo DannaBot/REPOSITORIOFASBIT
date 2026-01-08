@@ -106,7 +106,8 @@ const Upload = () => {
       fd.append('hidden', visible ? '0' : '1');
       fd.append('status', 'approved'); // Se aprueba automático
 
-      const token = user.token;
+      const token = user.token || (getUser() ? getUser().token : ''); // Aseguramos el token
+      
       const res = await fetch(`${API}/api/upload`, {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
